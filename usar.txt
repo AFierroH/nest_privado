@@ -1,0 +1,17 @@
+--------- SQL ---------
+
+mariadb -u root -p
+1234
+
+USE pos_sii_es;
+
+
+--------- NODE ---------
+
+npm i -g @nestjs/cli
+nest new pos-sii-nest
+cd pos-sii-nest
+npm install prisma @prisma/client mysql2
+npx prisma init
+
+

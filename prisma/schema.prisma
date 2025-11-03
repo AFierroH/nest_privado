@@ -1,0 +1,113 @@
+// Prisma schema para la base pos_sii_es
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model empresa {
+  id_empresa   Int       @id @default(autoincrement())
+  nombre       String
+  rut          String    @unique
+  direccion    String?
+  telefono     String?
+  email        String?
+  codigo_sii   String
+  clave_sii    String
+  usuarios     usuario[]
+  productos    producto[]
+  ventas       venta[]
+}
+
+enum Rol {
+  admin
+  vendedor
+  analista
+}
+
+model usuario {
+  id_usuario Int      @id @default(autoincrement())
+  nombre     String
+  email      String   @unique
+  clave      String
+  rol        Rol?     @map("rol") 
+  id_empresa Int?
+  empresa    empresa? @relation(fields: [id_empresa], references: [id_empresa])
+  ventas     venta[]
+  historial  historial_productos[]
+}
+
+model categoria {
+  id_categoria Int        @id @default(autoincrement())
+  nombre       String
+  descripcion  String?
+  productos    producto[]
+}
+
+model producto {
+  id_producto  Int      @id @default(autoincrement())
+  nombre       String
+  descripcion  String?
+  precio       Float
+  stock        Int
+  id_categoria Int
+  id_empresa   Int
+  categoria    categoria @relation(fields: [id_categoria], references: [id_categoria])
+  empresa      empresa   @relation(fields: [id_empresa], references: [id_empresa])
+  detalles     detalle_venta[]       // relación hacia detalle_venta
+  historial    historial_productos[]
+}
+
+model venta {
+  id_venta     Int            @id @default(autoincrement())
+  fecha        DateTime       @default(now())
+  total        Float
+  id_usuario   Int
+  id_empresa   Int
+  usuario      usuario        @relation(fields: [id_usuario], references: [id_usuario])
+  empresa      empresa        @relation(fields: [id_empresa], references: [id_empresa])
+  detalle_venta detalle_venta[]  // <-- renombrado para que el include sea igual
+  pagos        venta_pago[]
+}
+
+model detalle_venta {
+  id_detalle      Int      @id @default(autoincrement())
+  id_venta        Int
+  id_producto     Int
+  cantidad        Int
+  precio_unitario Float
+  subtotal        Float
+  venta           venta    @relation(fields: [id_venta], references: [id_venta])
+  producto        producto @relation(fields: [id_producto], references: [id_producto])
+}
+
+model forma_pago {
+  id_pago     Int @id @default(autoincrement())
+  metodo      String
+  descripcion String?
+  ventas      venta_pago[]
+}
+
+model venta_pago {
+  id_venta Int
+  id_pago  Int
+  monto    Float
+  venta    venta      @relation(fields: [id_venta], references: [id_venta])
+  pago     forma_pago @relation(fields: [id_pago], references: [id_pago])
+
+  @@id([id_venta, id_pago])
+}
+
+model historial_productos {
+  id_historial Int      @id @default(autoincrement())
+  id_producto  Int
+  fecha        DateTime @default(now())
+  accion       String
+  cantidad     Int
+  id_usuario   Int
+  producto     producto @relation(fields: [id_producto], references: [id_producto])
+  usuario      usuario  @relation(fields: [id_usuario], references: [id_usuario])
+}
