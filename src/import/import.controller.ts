@@ -2,11 +2,14 @@ import { Controller, Post, Get, Param, UploadedFile, UseInterceptors, Body } fro
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './import.service';
 import { PrismaService } from '../prisma.service';
-import { Prisma } from '@prisma/client';
+
 
 @Controller('import')
 export class ImportController {
-  constructor(private readonly importService: ImportService) {}
+  constructor(
+    private readonly importService: ImportService,
+    private readonly prismaService: PrismaService,
+  ) {}
 
   @Post('upload-sql')
   @UseInterceptors(FileInterceptor('file'))
@@ -22,14 +25,19 @@ export class ImportController {
   }
 
    @Get('dest-schema')
-  async getDestSchema() {
+  async getDestSchema(): Promise<Record<string, string[]>> {
+    const dbName = process.env.DB_NAME || 'pos_sii_es';
 
-    const dmmf = Prisma.dmmf;
+    const result = await this.prismaService.$queryRawUnsafe(`
+      SELECT TABLE_NAME, COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = '${dbName}';
+    `);
 
     const schema: Record<string, string[]> = {};
-
-    for (const model of dmmf.datamodel.models) {
-      schema[model.name.toLowerCase()] = model.fields.map((f) => f.name);
+    for (const row of result as any[]) {
+      if (!schema[row.TABLE_NAME]) schema[row.TABLE_NAME] = [];
+      schema[row.TABLE_NAME].push(row.COLUMN_NAME);
     }
 
     return schema;
