@@ -10,10 +10,10 @@ import { PrismaModule } from './prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { EstadisticasModule } from './estadisticas/estadisticas.module';
 import { ImportModule } from './import/import.module';
-
+import { EmailModule } from './email/email.module';
 
 @Module({
-  imports: [PrismaModule, EmpresaModule, UsuarioModule, VentaModule, DteModule, ProductoModule, AuthModule, EstadisticasModule, ImportModule],
+  imports: [PrismaModule, EmpresaModule, UsuarioModule, VentaModule, DteModule, ProductoModule, AuthModule, EstadisticasModule, ImportModule, EmailModule],
   controllers: [AppController],
   providers: [AppService], 
 })
