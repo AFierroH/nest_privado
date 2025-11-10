@@ -1,139 +1,3 @@
-/* import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { DteService } from '../dte/dte.service';
-import { PrismaService } from '../prisma.service';
-import * as iconv from 'iconv-lite';
-@Injectable()
-export class VentaService {
-  constructor(
-    private dteService: DteService,
-    private prisma: PrismaService 
-  ) {}
-
-async crearVenta(payload: any) {
-  const { id_usuario, id_empresa, total, detalles, pagos } = payload;
-  const venta = await this.prisma.venta.create({
-    data: {
-      fecha: new Date(),
-      total,
-      id_usuario,
-      id_empresa,
-      detalle_venta: {
-        create: detalles.map(d => ({
-          id_producto: d.id_producto,
-          cantidad: d.cantidad,
-          precio_unitario: d.precio_unitario,
-          subtotal: d.cantidad * d.precio_unitario,
-        })),
-      },
-      pagos: {
-        create: pagos?.map(p => ({
-          id_pago: p.id_pago,
-          monto: p.monto,
-        })) || [],
-      },
-    },
-    include: { detalle_venta: true, pagos: true },
-  });
-  return venta;
-}
-
-async emitirDte(payload: any) {
-    const { id_usuario, id_empresa, total, detalles = [], usarImpresora = true } = payload;
-    if (!detalles || detalles.length === 0) {
-      throw new InternalServerErrorException('No hay items en la venta');
-    }
-
-    const empresaDemo = {rut: "76.543.210-K",
-      razonSocial: "Comercial Temuco SpA",
-      giro: "Venta de artículos electrónicos",
-      direccion: "Av. Alemania 671",
-      comuna: "Temuco",
-      ciudad: "Araucanía",
-      telefono: "+56 45 2123456",
-      correo: "contacto@temuco-demo.cl",
-      logo: ""};
-    const fecha = new Date().toLocaleString('es-CL', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-    const venta = { id_venta: Math.floor(Math.random()*99999), fecha, total, id_usuario, id_empresa, detalles };
-    const neto = Math.round(total / 1.19);
-    const iva = total - neto;
-
-    // Helpers
-    const esc = (hexes: number[]) => Buffer.from(hexes);
-    const textBuf = (s: string) => iconv.encode(s, 'cp858');
-    const buffers: Buffer[] = [];
-    function encodedWithRaw(parts:any[]) {
-      const result = parts.map(p => typeof p === 'string' ? textBuf(p) : p);
-      return Buffer.concat(result);
-    }
-    function pushCorreoSeguro(buffersArr: Buffer[], correo: string) {
-      const [before, after] = correo.split('@');
-      if (!after) { buffersArr.push(textBuf(correo + '\n')); return; }
-      buffersArr.push(Buffer.concat([ textBuf(before), Buffer.from('@'), textBuf(after + '\n') ]));
-    }
-
-    // bytes escpos
-    buffers.push(esc([0x1B,0x40]));
-    buffers.push(esc([0x1C,0x2E]));
-    buffers.push(esc([0x1B,0x74,0x12]));
-    buffers.push(esc([0x1B,0x61,0x01]));
-    buffers.push(textBuf(`${empresaDemo.razonSocial}\n`));
-    buffers.push(textBuf(`RUT: ${empresaDemo.rut}\n`));
-    pushCorreoSeguro(buffers, empresaDemo.correo);
-    buffers.push(textBuf('------------------------------------------\n'));
-    buffers.push(esc([0x1B,0x61,0x00]));
-    buffers.push(encodedWithRaw(['Venta ', Buffer.from('#'), `${venta.id_venta}\n`]));
-    buffers.push(textBuf(`Fecha: ${venta.fecha}\n`));
-    buffers.push(textBuf('------------------------------------------\n'));
-
-    for (const d of detalles) {
-      const line = `${d.cantidad} x ${d.nombre}`;
-      const precio = `$${d.precio_unitario}`;
-      const formatted = line.padEnd(30).slice(0,30) + precio.padStart(10).slice(-10) + '\n';
-      buffers.push(textBuf(formatted));
-    }
-
-    buffers.push(textBuf('------------------------------------------\n'));
-    buffers.push(textBuf(`Neto: $${neto}\n`));
-    buffers.push(textBuf(`IVA (19%): $${iva}\n`));
-    buffers.push(textBuf(`TOTAL: $${venta.total}\n`));
-    buffers.push(esc([0x1B,0x61,0x01]));
-    buffers.push(textBuf('Gracias por su compra\n\n'));
-    buffers.push(esc([0x1B,0x64,0x03]));
-    buffers.push(esc([0x1D,0x56,0x42,0x00]));
-
-    const payloadBuffer = Buffer.concat(buffers);
-
-    return {
-      usarImpresora: true, // backend ya no intenta imprimir
-      venta,
-      boletaBase64: payloadBuffer.toString('base64'),
-      ticketBase64: payloadBuffer.toString('base64') // ESC/POS raw en base64
-    };
-  }
-async emitirVentaCompleta(payload: any) {
-  const ventaDb = await this.crearVenta(payload);
-
-  const dtePayload = {
-    ...payload,
-    detalles: ventaDb.detalle_venta.map(d => ({
-      id_producto: d.id_producto,
-      cantidad: d.cantidad,
-      precio_unitario: d.precio_unitario,
-      nombre: payload.detalles.find(x => x.id_producto === d.id_producto)?.nombre || '',
-    })),
-    total: ventaDb.total,
-    id_usuario: ventaDb.id_usuario,
-    id_empresa: ventaDb.id_empresa,
-  };
-  const ticket = await this.emitirDte(dtePayload);
-
-  return {
-    venta: ventaDb,
-    ticket,
-  };
-}
-}
- */
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import * as iconv from 'iconv-lite';
@@ -220,7 +84,7 @@ export class VentaService {
     const textBuf = (s: string) => iconv.encode(s, 'cp858');
     const buffers: Buffer[] = [];
 
-    // --- CONSTANTES ---
+    // Constantes ESC/POS
     const INIT = esc([0x1B, 0x40]);
     const FONT_A = esc([0x1B, 0x21, 0x00]); // Font A (12x24) - Estándar
     const FONT_B = esc([0x1B, 0x21, 0x01]); // Font B (9x17) - Comprimida/Pequeña
@@ -242,10 +106,19 @@ export class VentaService {
       if (!after) { buffersArr.push(textBuf(correo + '\n')); return; }
       buffersArr.push(Buffer.concat([ textBuf(before), Buffer.from('@'), textBuf(after + '\n') ]));
     }
-
+    const formatCLP = (value: number) => {
+      // 'es-CL' = Formato chileno (usa ".")
+      // 'style: 'currency'' = Pone el $
+      return new Intl.NumberFormat('es-CL', {
+        style: 'currency',
+        currency: 'CLP',
+        maximumFractionDigits: 0,
+        minimumFractionDigits: 0,
+      }).format(value);
+    };
     // Build ESC/POS bytes
     buffers.push(INIT);           // init
-    buffers.push(FONT_A);         // <-- ¡IMPORTANTE! Selecciona la fuente estándar
+    buffers.push(FONT_A);         
     buffers.push(ALIGN_CENTER);
     buffers.push(DOUBLE_HW);      // <-- Título grande
     buffers.push(textBuf(`${empresaDemo.razonSocial}\n`));
@@ -259,34 +132,57 @@ export class VentaService {
     buffers.push(textBuf('------------------------------------------\n'));
 
     // Bucle de detalles de venta
+    const ANCHO_TOTAL = 42; // O 40, o 32 (depende de FONT_A y ancho de papel)
+    const ANCHO_PRECIO = 12; // Espacio reservado para "$1.000.000"
+    const ANCHO_NOMBRE = ANCHO_TOTAL - ANCHO_PRECIO; // 30
+
     for (const d of detalles) {
-      const MAX_ANCHO = 42;
-    
-    const line = `${d.cantidad} x ${d.nombre}`;
-    const precio = `$${d.precio_unitario}`;
+      const line = `${d.cantidad} x ${d.nombre}`;
+      
+      // 1. Formateamos el precio
+      const precioFormateado = formatCLP(d.precio_unitario); // Ej: "$1.500"
 
-    const maxNombreAncho = MAX_ANCHO - precio.length - 1; 
-    const nombreTruncado = line.length > maxNombreAncho ? line.substring(0, maxNombreAncho) : line;
+      // 2. Recortamos el nombre si es muy largo
+      const nombreRecortado = line.length > ANCHO_NOMBRE 
+        ? line.substring(0, ANCHO_NOMBRE) 
+        : line;
 
-    const formatted = nombreTruncado.padEnd(MAX_ANCHO - precio.length) + precio + '\n';
-    buffers.push(textBuf(formatted));
+      // 3. Rellenamos el nombre a la izquierda y el precio a la derecha
+      const formatted = 
+        nombreRecortado.padEnd(ANCHO_NOMBRE) + 
+        precioFormateado.padStart(ANCHO_PRECIO) + '\n';
+        
+      buffers.push(textBuf(formatted));
     }
 
     buffers.push(textBuf('------------------------------------------\n'));
-    buffers.push(textBuf(`Neto: $${neto}\n`));
-    buffers.push(textBuf(`IVA (19%): $${iva}\n`));
-    buffers.push(BOLD_ON);        // <-- Total en negrita
-    buffers.push(DOUBLE_HW);      // <-- Total grande
-    buffers.push(textBuf(`TOTAL: $${venta.total}\n`));
-    buffers.push(RESET_HW);       // <-- Reset
-    buffers.push(BOLD_OFF);       // <-- Reset
-    buffers.push(ALIGN_CENTER);
+    
+    const netoFormateado = formatCLP(neto);
+    const ivaFormateado = formatCLP(iva);
+    const totalFormateado = formatCLP(venta.total);
+
+    buffers.push(textBuf(`Neto:`.padEnd(ANCHO_NOMBRE) + netoFormateado.padStart(ANCHO_PRECIO) + '\n'));
+    buffers.push(textBuf(`IVA (19%):`.padEnd(ANCHO_NOMBRE) + ivaFormateado.padStart(ANCHO_PRECIO) + '\n'));
+    
+    buffers.push(BOLD_ON);
+    buffers.push(DOUBLE_HW);
+    
+    // Para Doble Ancho, el ancho total es la mitad (ej: 42 -> 21)
+    const ANCHO_TOTAL_GRANDE = ANCHO_TOTAL / 2;
+    const ANCHO_PRECIO_GRANDE = ANCHO_PRECIO / 2; // (No es exacto, pero ajustamos)
+    const ANCHO_NOMBRE_GRANDE = Math.floor(ANCHO_TOTAL_GRANDE) - ANCHO_PRECIO; // Ajuste manual
+    
+    buffers.push(textBuf(`TOTAL:`.padEnd(ANCHO_NOMBRE_GRANDE) + totalFormateado.padStart(ANCHO_PRECIO) + '\n'));
+
+    buffers.push(RESET_HW);
+    buffers.push(BOLD_OFF);
+
+    buffers.push(esc([0x1B,0x61,0x01])); // Align center
     buffers.push(textBuf('Gracias por su compra\n\n'));
     buffers.push(FEED(3));        // feed 3 lineas
     buffers.push(CUT);            // cut
     const payloadBuffer = Buffer.concat(buffers);
 
-    // Texto para preview en frontend si no hay imagen
     const textPreview = [
       empresaDemo.razonSocial,
       `RUT: ${empresaDemo.rut}`,
