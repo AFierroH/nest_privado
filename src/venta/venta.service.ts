@@ -219,6 +219,20 @@ export class VentaService {
     const esc = (hexes: number[]) => Buffer.from(hexes);
     const textBuf = (s: string) => iconv.encode(s, 'cp858');
     const buffers: Buffer[] = [];
+
+    // --- CONSTANTES ---
+    const INIT = esc([0x1B, 0x40]);
+    const FONT_A = esc([0x1B, 0x21, 0x00]); // Font A (12x24) - Estándar
+    const FONT_B = esc([0x1B, 0x21, 0x01]); // Font B (9x17) - Comprimida/Pequeña
+    const BOLD_ON = esc([0x1B, 0x45, 0x01]);
+    const BOLD_OFF = esc([0x1B, 0x45, 0x00]);
+    const DOUBLE_HW = esc([0x1D, 0x21, 0x11]); // Doble alto y ancho
+    const RESET_HW = esc([0x1D, 0x21, 0x00]); // Reset tamaño
+    const ALIGN_CENTER = esc([0x1B, 0x61, 0x01]);
+    const ALIGN_LEFT = esc([0x1B, 0x61, 0x00]);
+    const CUT = esc([0x1D, 0x56, 0x42, 0x00]); // Cortar (parcial)
+    const FEED = (n: number) => esc([0x1B, 0x64, n]); // Feed n lineas
+    // --- FIN DE CONSTANTES ---
     function encodedWithRaw(parts:any[]) {
       const result = parts.map(p => typeof p === 'string' ? textBuf(p) : p);
       return Buffer.concat(result);
@@ -230,33 +244,46 @@ export class VentaService {
     }
 
     // Build ESC/POS bytes
-    buffers.push(esc([0x1B,0x40])); // init
-    buffers.push(esc([0x1B,0x61,0x01])); // align center
+    buffers.push(INIT);           // init
+    buffers.push(FONT_A);         // <-- ¡IMPORTANTE! Selecciona la fuente estándar
+    buffers.push(ALIGN_CENTER);
+    buffers.push(DOUBLE_HW);      // <-- Título grande
     buffers.push(textBuf(`${empresaDemo.razonSocial}\n`));
+    buffers.push(RESET_HW);       // <-- Volver a tamaño normal
     buffers.push(textBuf(`RUT: ${empresaDemo.rut}\n`));
     pushCorreoSeguro(buffers, empresaDemo.correo);
-    buffers.push(textBuf('------------------------------------------\n'));
-    buffers.push(esc([0x1B,0x61,0x00])); // align left
+    buffers.push(textBuf('------------------------------------------\n')); // Ajusta guiones si es necesario
+    buffers.push(ALIGN_LEFT);
     buffers.push(encodedWithRaw(['Venta ', Buffer.from('#'), `${venta.id_venta}\n`]));
     buffers.push(textBuf(`Fecha: ${venta.fecha}\n`));
     buffers.push(textBuf('------------------------------------------\n'));
 
+    // Bucle de detalles de venta
     for (const d of detalles) {
-      const line = `${d.cantidad} x ${d.nombre}`;
-      const precio = `$${d.precio_unitario}`;
-      const formatted = line.padEnd(30).slice(0,30) + precio.padStart(10).slice(-10) + '\n';
-      buffers.push(textBuf(formatted));
+      const MAX_ANCHO = 42;
+    
+    const line = `${d.cantidad} x ${d.nombre}`;
+    const precio = `$${d.precio_unitario}`;
+
+    const maxNombreAncho = MAX_ANCHO - precio.length - 1; 
+    const nombreTruncado = line.length > maxNombreAncho ? line.substring(0, maxNombreAncho) : line;
+
+    const formatted = nombreTruncado.padEnd(MAX_ANCHO - precio.length) + precio + '\n';
+    buffers.push(textBuf(formatted));
     }
 
     buffers.push(textBuf('------------------------------------------\n'));
     buffers.push(textBuf(`Neto: $${neto}\n`));
     buffers.push(textBuf(`IVA (19%): $${iva}\n`));
+    buffers.push(BOLD_ON);        // <-- Total en negrita
+    buffers.push(DOUBLE_HW);      // <-- Total grande
     buffers.push(textBuf(`TOTAL: $${venta.total}\n`));
-    buffers.push(esc([0x1B,0x61,0x01]));
+    buffers.push(RESET_HW);       // <-- Reset
+    buffers.push(BOLD_OFF);       // <-- Reset
+    buffers.push(ALIGN_CENTER);
     buffers.push(textBuf('Gracias por su compra\n\n'));
-    buffers.push(esc([0x1B,0x64,0x03])); // feed lines
-    buffers.push(esc([0x1D,0x56,0x42,0x00])); // cut (depends printer)
-
+    buffers.push(FEED(3));        // feed 3 lineas
+    buffers.push(CUT);            // cut
     const payloadBuffer = Buffer.concat(buffers);
 
     // Texto para preview en frontend si no hay imagen
