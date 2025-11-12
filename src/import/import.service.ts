@@ -40,11 +40,12 @@ export class ImportService {
   }
 
   async getDestSchema(): Promise<Record<string, string[]>> {
+  const dbName = process.env.DB_NAME || 'pos_sii_es';
   const result = await this.prisma.$queryRawUnsafe(`
     SELECT TABLE_NAME, COLUMN_NAME
     FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = ?
-  `, process.env.DB_NAME);
+    WHERE TABLE_SCHEMA = '${dbName}'
+  `);
 
   const schema: Record<string, string[]> = {};
   for (const row of result as any[]) {
@@ -122,12 +123,14 @@ export class ImportService {
     }
 
     // inserción en el modelo Prisma
-    const model: any = (this.prisma as any)[destTable];
+    const modelName = destTable.replace(/_([a-z])/g, g => g[1].toUpperCase());
+const model: any = (this.prisma as any)[modelName];
+if (!model) throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
     const created = await model.createMany({
       data: rowsToInsert,
       skipDuplicates: true,
     });
-
+    fs.unlink(sqlFile, () => {});
     return { inserted: created.count };
   }
 }
