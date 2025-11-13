@@ -227,16 +227,24 @@ export class ImportService {
     const model: any = (this.prisma as any)[modelName];
     if (!model) throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
 
-    const created = await model.createMany({
-      data: cleanedRows, 
-      skipDuplicates: true,
-    });
+    await this.prisma.$transaction(async (tx) => {
+  for (const row of cleanedRows) {
+    const columns = Object.keys(row).join(', ');
+    const values = Object.values(row)
+  .map(v => {
+    if (v === null || v === undefined) return 'NULL'
+    const strVal = String(v)
+    return `'${strVal.replace(/'/g, "''")}'`
+  })
+  .join(', ')
+
+    const sql = `INSERT INTO \`${destTable}\` (${columns}) VALUES (${values})`;
+    await tx.$executeRawUnsafe(sql);
+  }
+});
 
     fs.unlink(sqlFile, () => {});
     
-    return { 
-      attempted: totalRowsFound,
-      inserted: created.count
-    };
+    return { inserted: cleanedRows.length };
   }
 }
