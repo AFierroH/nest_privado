@@ -30,7 +30,7 @@ export class VentaService {
       ciudad: "Araucanía",
       telefono: "+56 45 2123456",
       correo: "contacto@temuco-demo.cl",
-      logo: "https://upload.wikimedia.org/wikipedia/commons/4/45/Coca-Cola_logo.svg"
+      logo: path.join(__dirname, 'CocaCola.png'),
     };
 
     const fecha = new Date().toLocaleString('es-CL', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
@@ -55,7 +55,7 @@ export class VentaService {
     });
 
     // ----------------------------------------------------------------------
-    // ✅ Generar XML del DTE simulado
+    // Generar XML del DTE simulado
     // ----------------------------------------------------------------------
     const xmlObj = {
       DTE: {
@@ -99,7 +99,7 @@ export class VentaService {
     fs.writeFileSync(xmlPath, xmlStr, 'utf8');
 
     // ----------------------------------------------------------------------
-    // ✅ Generar PDF de boleta
+    // Generar PDF de boleta
     // ----------------------------------------------------------------------
     const pdfPath = path.join(saveDir, `boleta_${venta.id_venta}.pdf`);
     const doc = new PDFDocument({ margin: 30 });
