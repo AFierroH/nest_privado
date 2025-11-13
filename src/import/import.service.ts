@@ -125,136 +125,79 @@ export class ImportService {
 async applyMapping(body: any) {
   const { uploadId, sourceTable, destTable, mapping, staticValues } = body;
   const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
-  const content = fs.readFileSync(sqlFile, 'utf8');
 
-  console.log('Iniciando importación:');
-  console.log('   - uploadId:', uploadId);
-  console.log('   - sourceTable:', sourceTable);
-  console.log('   - destTable:', destTable);
+  console.log('==============================');
+  console.log('applyMapping() llamado');
+  console.log('Body recibido:', JSON.stringify(body, null, 2));
+  console.log('Ruta SQL file:', sqlFile);
+  console.log('==============================');
 
   try {
-    const dbName = process.env.DB_NAME || 'pos_sii_es';
-    const typeResult = await this.prisma.$queryRawUnsafe(`
-      SELECT COLUMN_NAME, DATA_TYPE
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${destTable}'
-    `);
-
-    const destTypes = new Map<string, string>();
-    for (const row of typeResult as any[]) {
-      destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
+    if (!fs.existsSync(sqlFile)) {
+      throw new Error(`Archivo SQL no encontrado: ${sqlFile}`);
     }
 
+    const content = fs.readFileSync(sqlFile, 'utf8');
+    console.log(`Tamaño del archivo SQL: ${content.length} bytes`);
+
+    // Regex de INSERT
     const insertRegex = new RegExp(
       `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
       'gi',
     );
 
-    const rowsToInsert: any[] = [];
     let match;
-
+    const rowsToInsert: any[] = [];
     while ((match = insertRegex.exec(content))) {
       const cols = match[1].split(',').map(c => c.replace(/`/g, '').trim());
-      const valuesChunk = match[2];
-      const tuples = valuesChunk.match(/\(([^)]+)\)/g) || [];
+      const tuples = match[2].match(/\(([^)]+)\)/g) || [];
 
       for (const t of tuples) {
         const vals = this.parseSqlValues(t.substring(1, t.length - 1));
         const row: any = {};
         for (const destCol in mapping) {
           const src = mapping[destCol];
-          if (src === '__static') {
-            row[destCol] = staticValues?.[destCol] ?? null;
-          } else if (src && cols.includes(src)) {
-            row[destCol] = vals[cols.indexOf(src)];
-          }
+          if (src === '__static') row[destCol] = staticValues?.[destCol] ?? null;
+          else if (src && cols.includes(src)) row[destCol] = vals[cols.indexOf(src)];
         }
         rowsToInsert.push(row);
       }
     }
 
-    console.log(`Total filas detectadas: ${rowsToInsert.length}`);
+    console.log(`Filas detectadas: ${rowsToInsert.length}`);
+    console.log('Primeras filas:', rowsToInsert.slice(0, 3));
+
     if (rowsToInsert.length === 0) {
-      throw new Error('No se encontraron filas INSERT en el archivo SQL.');
+      throw new Error('No se detectaron filas INSERT válidas en el archivo SQL');
     }
 
-    // Limpiar datos según tipo
-    const cleanedRows: any[] = [];
-    for (const row of rowsToInsert) {
-      const cleanedRow: Record<string, any> = {};
-      for (const destCol in row) {
-        const type = destTypes.get(destCol);
-        let value = row[destCol];
+    // Intentar obtener modelo Prisma
+    const modelName = destTable.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
+    const prismaModel = (this.prisma as any)[modelName];
 
-        if (value === undefined || value === '' || value === 'NULL') {
-          cleanedRow[destCol] = null;
-          continue;
-        }
-
-        try {
-          switch (type) {
-            case 'int':
-            case 'bigint':
-            case 'tinyint':
-              cleanedRow[destCol] = parseInt(value, 10) || null;
-              break;
-            case 'decimal':
-            case 'float':
-            case 'double':
-              cleanedRow[destCol] = parseFloat(value) || null;
-              break;
-            case 'datetime':
-            case 'timestamp':
-              const date = new Date(value);
-              cleanedRow[destCol] = isNaN(date.getTime()) ? null : date;
-              break;
-            default:
-              cleanedRow[destCol] = String(value);
-          }
-        } catch {
-          cleanedRow[destCol] = null;
-        }
-      }
-      cleanedRows.push(cleanedRow);
+    if (!prismaModel) {
+      console.error('Modelo Prisma no encontrado:', modelName);
+      console.log('Modelos disponibles:', Object.keys(this.prisma));
+      throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
     }
 
-    // Buscar modelo Prisma dinámico
-    const modelNameVariants = [
-      destTable,
-      destTable.replace(/_([a-z])/g, (_, g) => g.toUpperCase()), // detalle_venta -> detalleVenta
-      destTable.endsWith('s') ? destTable.slice(0, -1) : destTable + 's', // plural/singular
-    ];
+    console.log(`Modelo Prisma usado: ${modelName}`);
 
-    let model: any = null;
-    for (const variant of modelNameVariants) {
-      if ((this.prisma as any)[variant]) {
-        model = (this.prisma as any)[variant];
-        console.log(`Modelo Prisma encontrado: ${variant}`);
-        break;
-      }
-    }
-
-    if (!model) {
-      console.error('Ningún modelo Prisma coincide con:', destTable);
-      throw new Error(`Modelo Prisma no encontrado: ${destTable}`);
-    }
-
-    console.log(`Insertando ${cleanedRows.length} filas en ${destTable}...`);
-
-    const created = await model.createMany({
-      data: cleanedRows,
+    // Insertar datos
+    const created = await prismaModel.createMany({
+      data: rowsToInsert,
       skipDuplicates: true,
     });
 
-    console.log('Inserción completada:', created.count, 'filas insertadas');
-
+    console.log(`createMany completado: ${created.count} filas insertadas`);
     fs.unlink(sqlFile, () => {});
-    return { attempted: cleanedRows.length, inserted: created.count };
+    return { inserted: created.count };
   } catch (error: any) {
-    console.error('Error en applyMapping:', error.message);
-    if (error.code || error.meta) console.error('Detalles:', error);
-    throw new Error(`Error al importar: ${error.message}`);
+    console.error('Error completo en applyMapping:');
+    console.error(error);
+    throw new Error(`Error en importación: ${error.message}`);
   }
 }
+
 
 }
