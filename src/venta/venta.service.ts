@@ -105,7 +105,7 @@ async emitirDte(payload: any) {
     const logoBuffer = fs.readFileSync(empresaDemo.logo);
     logoBase64 = logoBuffer.toString('base64');
   } catch (err) {
-    console.warn('⚠️ No se pudo leer el logo local:', err.message);
+    console.warn('No se pudo leer el logo local:', err.message);
   }
 
   // === Generar código PDF417 ===
