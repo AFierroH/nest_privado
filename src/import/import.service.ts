@@ -88,7 +88,7 @@ async getParsed(uploadId: string) {
     }
     return values;
   }
-  // --- Fin Arreglo 3 ---
+
 
   async preview(body: any) {
     const { uploadId, sourceTable, destTable, mapping } = body;
@@ -130,7 +130,7 @@ async getParsed(uploadId: string) {
     const content = fs.readFileSync(sqlFile, 'utf8');
 
     const insertRegex = new RegExp(
-      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\S]+?);`,
+      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
       'gi',
     );
 
@@ -143,7 +143,6 @@ async getParsed(uploadId: string) {
 
       for (const t of tuples) {
         const vals = this.parseSqlValues(t.substring(1, t.length - 1));
-
         const row: any = {};
         for (const destCol in mapping) {
           const src = mapping[destCol];
@@ -157,6 +156,14 @@ async getParsed(uploadId: string) {
       }
     }
 
+    const totalRowsFound = rowsToInsert.length;
+
+    if (totalRowsFound === 0) {
+      fs.unlink(sqlFile, () => {});
+      // Si el parser no encontró NADA error
+      throw new Error('El parser no encontró filas "INSERT INTO" para la tabla seleccionada.');
+    }
+
     const modelName = destTable.replace(/_([a-z])/g, g => g[1].toUpperCase());
     const model: any = (this.prisma as any)[modelName];
     if (!model) throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
@@ -165,7 +172,12 @@ async getParsed(uploadId: string) {
       data: rowsToInsert,
       skipDuplicates: true,
     });
+
     fs.unlink(sqlFile, () => {});
-    return { inserted: created.count };
+    
+    return { 
+      attempted: totalRowsFound, 
+      inserted: created.count  
+    };
   }
 }
