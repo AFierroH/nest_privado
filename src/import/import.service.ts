@@ -21,30 +21,28 @@ export class ImportService {
     return { uploadId };
   }
 
-  async getParsed(uploadId: string) {
+async getParsed(uploadId: string) {
     const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
     const content = fs.readFileSync(sqlFile, 'utf8');
 
-    const tableRegex = /CREATE TABLE\s+`?(\w+)`?\s*\(([\s\S]*?)\)/g;
+    // Regex para encontrar: CREATE TABLE `tabla` ( ... );
+    const tableRegex = /CREATE TABLE\s+`?(\w+)`?\s*\(([\s\S]*?)\);/g;
     const tables: any[] = [];
     let match;
 
     while ((match = tableRegex.exec(content))) {
       const [, name, body] = match;
-      
-      const columnRegex = /^\s*`?(\w+)`?\s+\w+/gm;
+
+      // Regex global para encontrar todas las definiciones de columnas
+      // Busca: (opcional) ` + (nombre_col) + (opcional) ` + (tipo de dato)
+      const columnRegex = /`?(\w+)`?\s+(?:VARCHAR|INT|DECIMAL|DATETIME|TEXT)/g;
       const columns: string[] = [];
       let colMatch;
 
       while ((colMatch = columnRegex.exec(body))) {
-        const colName = colMatch[1];
-
-        const keywords = ['PRIMARY', 'FOREIGN', 'KEY', 'CONSTRAINT', 'UNIQUE', 'INDEX'];
-        if (colName && !keywords.includes(colName.toUpperCase())) {
-           columns.push(colName);
-        }
+        // colMatch[1] es el nombre de la columna capturado (ej. "id_usuario")
+        columns.push(colMatch[1]);
       }
-
       tables.push({ name, columns });
     }
     return tables;
