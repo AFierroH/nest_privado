@@ -134,14 +134,13 @@ export class ImportService {
         WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${destTable}'
     `);
     
-    // Mapeamos los tipos: ej. 'id_usuario' -> 'int'
     const destTypes = new Map<string, string>();
     for (const row of typeResult as any[]) {
         destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
     }
-
+  
     const insertRegex = new RegExp(
-      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\S]+?);`,
+      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
       'gi',
     );
 
@@ -173,44 +172,52 @@ export class ImportService {
       throw new Error('El parser no encontró filas "INSERT INTO" para la tabla seleccionada.');
     }
 
-    // Recorremos las filas y forzamos el tipo de dato correcto
     const cleanedRows: any[] = [];
     for (const row of rowsToInsert) {
         const cleanedRow = {};
         for (const destCol in row) {
-            const value = row[destCol];
-            const type = destTypes.get(destCol); 
+            let value = row[destCol];
+            const type = destTypes.get(destCol);
 
-            if (value === null) {
-                cleanedRow[destCol] = null; // Prisma maneja nulls (si la columna es opcional)
+            if (value === null || value === undefined) {
+                cleanedRow[destCol] = null;
+                continue;
+            }
+            
+            // Si el valor es un string vacío (""), tratarlo como null
+            if (value === "") {
+                cleanedRow[destCol] = null;
                 continue;
             }
 
-            switch (type) {
-                case 'int':
-                case 'bigint':
-                case 'tinyint':
-                    const intVal = parseInt(value, 10);
-                    cleanedRow[destCol] = isNaN(intVal) ? null : intVal;
-                    break;
-                case 'decimal':
-                case 'float':
-                case 'double':
-                    const floatVal = parseFloat(value);
-                    cleanedRow[destCol] = isNaN(floatVal) ? null : floatVal;
-                    break;
-                case 'datetime':
-                case 'timestamp':
-                    const dateVal = new Date(value);
-                    // Si la fecha es inválida, la dejamos como null
-                    cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
-                    break;
-                case 'varchar':
-                case 'text':
-                case 'char':
-                default:
-                    cleanedRow[destCol] = String(value);
-                    break;
+            try {
+                switch (type) {
+                    case 'int':
+                    case 'bigint':
+                    case 'tinyint':
+                        const intVal = parseInt(value, 10);
+                        cleanedRow[destCol] = isNaN(intVal) ? null : intVal;
+                        break;
+                    case 'decimal':
+                    case 'float':
+                    case 'double':
+                        const floatVal = parseFloat(value);
+                        cleanedRow[destCol] = isNaN(floatVal) ? null : floatVal;
+                        break;
+                    case 'datetime':
+                    case 'timestamp':
+                        const dateVal = new Date(value);
+                        cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
+                        break;
+                    case 'varchar':
+                    case 'text':
+                    case 'char':
+                    default:
+                        cleanedRow[destCol] = String(value);
+                        break;
+                }
+            } catch (e) {
+                cleanedRow[destCol] = null; 
             }
         }
         cleanedRows.push(cleanedRow);
