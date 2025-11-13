@@ -21,27 +21,32 @@ export class ImportService {
     return { uploadId };
   }
 
-async getParsed(uploadId: string) {
+  async getParsed(uploadId: string) {
     const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
     const content = fs.readFileSync(sqlFile, 'utf8');
 
-    // Regex para encontrar: CREATE TABLE `tabla` ( ... );
     const tableRegex = /CREATE TABLE\s+`?(\w+)`?\s*\(([\s\S]*?)\);/g;
     const tables: any[] = [];
     let match;
 
     while ((match = tableRegex.exec(content))) {
       const [, name, body] = match;
-
-      // Regex global para encontrar todas las definiciones de columnas
-      // Busca: (opcional) ` + (nombre_col) + (opcional) ` + (tipo de dato)
-      const columnRegex = /`?(\w+)`?\s+(?:VARCHAR|INT|DECIMAL|DATETIME|TEXT)/g;
       const columns: string[] = [];
-      let colMatch;
-
-      while ((colMatch = columnRegex.exec(body))) {
-        // colMatch[1] es el nombre de la columna capturado (ej. "id_usuario")
-        columns.push(colMatch[1]);
+      const lines = body.split('\n');
+      const lineRegex = /^\s*`?(\w+)`?\s+/; 
+      
+      for (const line of lines) {
+        const colMatch = line.trim().match(lineRegex);
+        if (colMatch && colMatch[1]) {
+          const colName = colMatch[1];
+          const keywords = [
+            'PRIMARY', 'FOREIGN', 'KEY', 'CONSTRAINT', 
+            'UNIQUE', 'INDEX', 'CHECK'
+          ];
+          if (!keywords.includes(colName.toUpperCase())) {
+            columns.push(colName);
+          }
+        }
       }
       tables.push({ name, columns });
     }
@@ -59,34 +64,28 @@ async getParsed(uploadId: string) {
     const schema: Record<string, string[]> = {};
     for (const row of result as any[]) {
       if (!schema[row.TABLE_NAME]) schema[row.TABLE_NAME] = [];
-      
       schema[row.TABLE_NAME].push(row.COLUMN_NAME);
-
     }
     return schema;
   }
 
-  // Esta función es un parser de tuplas SQL más inteligente.
-  // Reemplaza el simple .split(',')
   private parseSqlValues(tupleBody: string): (string | number | null)[] {
-    const values: (string | number | null)[] = [];
-    // Esta regex captura: 'strings con comas', 123.45, 123, y NULL
-    const valueRegex = /'((?:[^'\\]|\\.)*)'|(\d+\.\d+)|(\d+)|(NULL)/g;
-    let match;
-
-    while ((match = valueRegex.exec(tupleBody))) {
-      if (match[1] !== undefined) { 
-        // Maneja comillas escapadas (ej. 'O\'Connor')
-        values.push(match[1].replace(/\\'/g, "'"));
-      } else if (match[2] !== undefined) { 
-        values.push(Number(match[2]));
-      } else if (match[3] !== undefined) { 
-        values.push(Number(match[3]));
-      } else if (match[4] !== undefined) { 
-        values.push(null);
-      }
-    }
-    return values;
+    const splitRegex = /,(?=(?:[^']*'[^']*')*[^']*$)/g;
+    
+    return tupleBody.split(splitRegex).map(v => {
+        const val = v.trim();
+        
+        if (val.toUpperCase() === 'NULL') {
+            return null;
+        }
+        if (val.startsWith("'") && val.endsWith("'")) {
+            return val.substring(1, val.length - 1).replace(/\\'/g, "'");
+        }
+        if (!isNaN(Number(val))) {
+            return val; 
+        }
+        return val;
+    });
   }
 
 
@@ -109,7 +108,6 @@ async getParsed(uploadId: string) {
 
       for (const t of tuples.slice(0, 5)) {
         const vals = this.parseSqlValues(t.substring(1, t.length - 1));
-
         const row: any = {};
         for (const destCol in mapping) {
           const src = mapping[destCol];
@@ -129,8 +127,21 @@ async getParsed(uploadId: string) {
     const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
     const content = fs.readFileSync(sqlFile, 'utf8');
 
+    const dbName = process.env.DB_NAME || 'pos_sii_es';
+    const typeResult = await this.prisma.$queryRawUnsafe(`
+        SELECT COLUMN_NAME, DATA_TYPE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${destTable}'
+    `);
+    
+    // Mapeamos los tipos: ej. 'id_usuario' -> 'int'
+    const destTypes = new Map<string, string>();
+    for (const row of typeResult as any[]) {
+        destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
+    }
+
     const insertRegex = new RegExp(
-      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
+      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\S]+?);`,
       'gi',
     );
 
@@ -155,13 +166,54 @@ async getParsed(uploadId: string) {
         rowsToInsert.push(row);
       }
     }
-
+    
     const totalRowsFound = rowsToInsert.length;
-
     if (totalRowsFound === 0) {
       fs.unlink(sqlFile, () => {});
-      // Si el parser no encontró NADA error
       throw new Error('El parser no encontró filas "INSERT INTO" para la tabla seleccionada.');
+    }
+
+    // Recorremos las filas y forzamos el tipo de dato correcto
+    const cleanedRows: any[] = [];
+    for (const row of rowsToInsert) {
+        const cleanedRow = {};
+        for (const destCol in row) {
+            const value = row[destCol];
+            const type = destTypes.get(destCol); 
+
+            if (value === null) {
+                cleanedRow[destCol] = null; // Prisma maneja nulls (si la columna es opcional)
+                continue;
+            }
+
+            switch (type) {
+                case 'int':
+                case 'bigint':
+                case 'tinyint':
+                    const intVal = parseInt(value, 10);
+                    cleanedRow[destCol] = isNaN(intVal) ? null : intVal;
+                    break;
+                case 'decimal':
+                case 'float':
+                case 'double':
+                    const floatVal = parseFloat(value);
+                    cleanedRow[destCol] = isNaN(floatVal) ? null : floatVal;
+                    break;
+                case 'datetime':
+                case 'timestamp':
+                    const dateVal = new Date(value);
+                    // Si la fecha es inválida, la dejamos como null
+                    cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
+                    break;
+                case 'varchar':
+                case 'text':
+                case 'char':
+                default:
+                    cleanedRow[destCol] = String(value);
+                    break;
+            }
+        }
+        cleanedRows.push(cleanedRow);
     }
 
     const modelName = destTable.replace(/_([a-z])/g, g => g[1].toUpperCase());
@@ -169,15 +221,15 @@ async getParsed(uploadId: string) {
     if (!model) throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
 
     const created = await model.createMany({
-      data: rowsToInsert,
+      data: cleanedRows, 
       skipDuplicates: true,
     });
 
     fs.unlink(sqlFile, () => {});
     
     return { 
-      attempted: totalRowsFound, 
-      inserted: created.count  
+      attempted: totalRowsFound,
+      inserted: created.count
     };
   }
 }
