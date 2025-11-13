@@ -26,6 +26,7 @@
     "@prisma/client": "^6.16.2",
     "bwip-js": "^4.7.0",
     "canvas": "^3.2.0",
+    "date-fns": "^4.1.0",
     "escpos": "^3.0.0-alpha.6",
     "escpos-network": "^3.0.0-alpha.5",
     "iconv-lite": "^0.7.0",
