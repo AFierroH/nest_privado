@@ -140,7 +140,6 @@ async applyMapping(body: any) {
     const content = fs.readFileSync(sqlFile, 'utf8');
     console.log(`Tamaño del archivo SQL: ${content.length} bytes`);
 
-    // Extraer tipos desde la BD
     const dbName = process.env.DB_NAME || 'pos_sii_es';
     const typeResult = await this.prisma.$queryRawUnsafe(`
       SELECT COLUMN_NAME, DATA_TYPE
@@ -153,7 +152,6 @@ async applyMapping(body: any) {
       destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
     }
 
-    // Regex de INSERT
     const insertRegex = new RegExp(
       `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
       'gi',
@@ -184,13 +182,12 @@ async applyMapping(body: any) {
       throw new Error('No se detectaron filas INSERT válidas en el archivo SQL');
     }
 
-    // Convertir tipos según la tabla destino
     const cleanedRows: any[] = [];
     for (const row of rowsToInsert) {
       const cleanedRow: any = {};
       for (const destCol in row) {
         let value = row[destCol];
-        const type = destTypes.get(destCol)?.toLowerCase();
+        const type = destTypes.get(destCol)?.toLowerCase() || ''; // 👈 FIX AQUÍ
 
         if (value === null || value === undefined || value === '') {
           cleanedRow[destCol] = null;
@@ -198,28 +195,17 @@ async applyMapping(body: any) {
         }
 
         try {
-          switch (true) {
-            case /int/.test(type):
-              cleanedRow[destCol] = Number.isNaN(Number(value))
-                ? null
-                : parseInt(value, 10);
-              break;
-            case /(decimal|float|double)/.test(type):
-              cleanedRow[destCol] = Number.isNaN(Number(value))
-                ? null
-                : parseFloat(value);
-              break;
-            case /(datetime|timestamp|date)/.test(type):
-              const dateVal = new Date(value);
-              cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
-              break;
-            case /(bit|boolean)/.test(type):
-              cleanedRow[destCol] =
-                value === '1' || value === 'true' ? true : false;
-              break;
-            default:
-              cleanedRow[destCol] = String(value);
-              break;
+          if (/int/.test(type)) {
+            cleanedRow[destCol] = Number.isNaN(Number(value)) ? null : parseInt(value, 10);
+          } else if (/(decimal|float|double)/.test(type)) {
+            cleanedRow[destCol] = Number.isNaN(Number(value)) ? null : parseFloat(value);
+          } else if (/(datetime|timestamp|date)/.test(type)) {
+            const dateVal = new Date(value);
+            cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
+          } else if (/(bit|boolean)/.test(type)) {
+            cleanedRow[destCol] = value === '1' || value === 'true';
+          } else {
+            cleanedRow[destCol] = String(value);
           }
         } catch {
           cleanedRow[destCol] = null;
@@ -228,7 +214,6 @@ async applyMapping(body: any) {
       cleanedRows.push(cleanedRow);
     }
 
-    // Modelo Prisma dinámico
     const modelName = destTable.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
     const prismaModel = (this.prisma as any)[modelName];
 
@@ -240,7 +225,6 @@ async applyMapping(body: any) {
 
     console.log(`Modelo Prisma usado: ${modelName}`);
 
-    // Insertar
     const created = await prismaModel.createMany({
       data: cleanedRows,
       skipDuplicates: true,
@@ -255,6 +239,4 @@ async applyMapping(body: any) {
     throw new Error(`Error en importación: ${error.message}`);
   }
 }
-
-
 }
