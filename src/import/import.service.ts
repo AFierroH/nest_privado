@@ -122,23 +122,29 @@ export class ImportService {
     return { preview };
   }
 
-  async applyMapping(body: any) {
-    const { uploadId, sourceTable, destTable, mapping, staticValues } = body;
-    const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
-    const content = fs.readFileSync(sqlFile, 'utf8');
+async applyMapping(body: any) {
+  const { uploadId, sourceTable, destTable, mapping, staticValues } = body;
+  const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
+  const content = fs.readFileSync(sqlFile, 'utf8');
 
+  console.log('Iniciando importación:');
+  console.log('   - uploadId:', uploadId);
+  console.log('   - sourceTable:', sourceTable);
+  console.log('   - destTable:', destTable);
+
+  try {
     const dbName = process.env.DB_NAME || 'pos_sii_es';
     const typeResult = await this.prisma.$queryRawUnsafe(`
-        SELECT COLUMN_NAME, DATA_TYPE
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${destTable}'
+      SELECT COLUMN_NAME, DATA_TYPE
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${destTable}'
     `);
-    
+
     const destTypes = new Map<string, string>();
     for (const row of typeResult as any[]) {
-        destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
+      destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
     }
-  
+
     const insertRegex = new RegExp(
       `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
       'gi',
@@ -146,6 +152,7 @@ export class ImportService {
 
     const rowsToInsert: any[] = [];
     let match;
+
     while ((match = insertRegex.exec(content))) {
       const cols = match[1].split(',').map(c => c.replace(/`/g, '').trim());
       const valuesChunk = match[2];
@@ -165,86 +172,89 @@ export class ImportService {
         rowsToInsert.push(row);
       }
     }
-    
-    const totalRowsFound = rowsToInsert.length;
-    if (totalRowsFound === 0) {
-      fs.unlink(sqlFile, () => {});
-      throw new Error('El parser no encontró filas "INSERT INTO" para la tabla seleccionada.');
+
+    console.log(`Total filas detectadas: ${rowsToInsert.length}`);
+    if (rowsToInsert.length === 0) {
+      throw new Error('No se encontraron filas INSERT en el archivo SQL.');
     }
 
+    // Limpiar datos según tipo
     const cleanedRows: any[] = [];
     for (const row of rowsToInsert) {
-        const cleanedRow = {};
-        for (const destCol in row) {
-            let value = row[destCol];
-            const type = destTypes.get(destCol);
+      const cleanedRow: Record<string, any> = {};
+      for (const destCol in row) {
+        const type = destTypes.get(destCol);
+        let value = row[destCol];
 
-            if (value === null || value === undefined) {
-                cleanedRow[destCol] = null;
-                continue;
-            }
-            
-            // Si el valor es un string vacío (""), tratarlo como null
-            if (value === "") {
-                cleanedRow[destCol] = null;
-                continue;
-            }
-
-            try {
-                switch (type) {
-                    case 'int':
-                    case 'bigint':
-                    case 'tinyint':
-                        const intVal = parseInt(value, 10);
-                        cleanedRow[destCol] = isNaN(intVal) ? null : intVal;
-                        break;
-                    case 'decimal':
-                    case 'float':
-                    case 'double':
-                        const floatVal = parseFloat(value);
-                        cleanedRow[destCol] = isNaN(floatVal) ? null : floatVal;
-                        break;
-                    case 'datetime':
-                    case 'timestamp':
-                        const dateVal = new Date(value);
-                        cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
-                        break;
-                    case 'varchar':
-                    case 'text':
-                    case 'char':
-                    default:
-                        cleanedRow[destCol] = String(value);
-                        break;
-                }
-            } catch (e) {
-                cleanedRow[destCol] = null; 
-            }
+        if (value === undefined || value === '' || value === 'NULL') {
+          cleanedRow[destCol] = null;
+          continue;
         }
-        cleanedRows.push(cleanedRow);
+
+        try {
+          switch (type) {
+            case 'int':
+            case 'bigint':
+            case 'tinyint':
+              cleanedRow[destCol] = parseInt(value, 10) || null;
+              break;
+            case 'decimal':
+            case 'float':
+            case 'double':
+              cleanedRow[destCol] = parseFloat(value) || null;
+              break;
+            case 'datetime':
+            case 'timestamp':
+              const date = new Date(value);
+              cleanedRow[destCol] = isNaN(date.getTime()) ? null : date;
+              break;
+            default:
+              cleanedRow[destCol] = String(value);
+          }
+        } catch {
+          cleanedRow[destCol] = null;
+        }
+      }
+      cleanedRows.push(cleanedRow);
     }
 
-    const modelName = destTable.replace(/_([a-z])/g, g => g[1].toUpperCase());
-    const model: any = (this.prisma as any)[modelName];
-    if (!model) throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
+    // Buscar modelo Prisma dinámico
+    const modelNameVariants = [
+      destTable,
+      destTable.replace(/_([a-z])/g, (_, g) => g.toUpperCase()), // detalle_venta -> detalleVenta
+      destTable.endsWith('s') ? destTable.slice(0, -1) : destTable + 's', // plural/singular
+    ];
 
-    await this.prisma.$transaction(async (tx) => {
-  for (const row of cleanedRows) {
-    const columns = Object.keys(row).join(', ');
-    const values = Object.values(row)
-  .map(v => {
-    if (v === null || v === undefined) return 'NULL'
-    const strVal = String(v)
-    return `'${strVal.replace(/'/g, "''")}'`
-  })
-  .join(', ')
+    let model: any = null;
+    for (const variant of modelNameVariants) {
+      if ((this.prisma as any)[variant]) {
+        model = (this.prisma as any)[variant];
+        console.log(`Modelo Prisma encontrado: ${variant}`);
+        break;
+      }
+    }
 
-    const sql = `INSERT INTO \`${destTable}\` (${columns}) VALUES (${values})`;
-    await tx.$executeRawUnsafe(sql);
-  }
-});
+    if (!model) {
+      console.error('Ningún modelo Prisma coincide con:', destTable);
+      throw new Error(`Modelo Prisma no encontrado: ${destTable}`);
+    }
+
+    console.log(`Insertando ${cleanedRows.length} filas en ${destTable}...`);
+
+    const created = await model.createMany({
+      data: cleanedRows,
+      skipDuplicates: true,
+    });
+
+    console.log('Inserción completada:', created.count, 'filas insertadas');
 
     fs.unlink(sqlFile, () => {});
-    
-    return { inserted: cleanedRows.length };
+    return { attempted: cleanedRows.length, inserted: created.count };
+  } catch (error: any) {
+    console.error('Error en applyMapping:', error.message);
+    if (error.code || error.meta) console.error('Detalles:', error);
+    throw new Error(`Error al importar: ${error.message}`);
   }
+}
+
 }
