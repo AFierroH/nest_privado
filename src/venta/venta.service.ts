@@ -39,7 +39,7 @@ export class VentaService {
     const iva = total - neto;
 
     // ----------------------------------------------------------------------
-    // ✅ Generar código PDF417 real
+    // Generar código PDF417 real
     // ----------------------------------------------------------------------
     const pdf417Base64 = await new Promise<string>((resolve, reject) => {
       bwipjs.toBuffer({
@@ -136,13 +136,14 @@ export class VentaService {
     doc.text('Verifique el documento en www.sii.cl', { align: 'center' });
     doc.end();
 
-    await new Promise((res, rej) => {
-      stream.on('finish', res);
-      stream.on('error', rej);
-    });
+    await new Promise<void>((res, rej) => {
+  stream.on('finish', () => res());
+  stream.on('error', rej);
+});
+
 
     // ----------------------------------------------------------------------
-    // ✅ Preparar ticket ESC/POS
+    // Preparar ticket ESC/POS
     // ----------------------------------------------------------------------
     const esc = (h: number[]) => Buffer.from(h);
     const textBuf = (s: string) => iconv.encode(s, 'cp858');
