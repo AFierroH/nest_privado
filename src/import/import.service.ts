@@ -32,22 +32,18 @@ export class ImportService {
     while ((match = tableRegex.exec(content))) {
       const [, name, body] = match;
       
-      // --- CÓDIGO CORREGIDO ---
-      // Esta nueva Regex busca el primer nombre en cada línea,
-      // con o sin comillas graves (`).
       const columnRegex = /^\s*`?(\w+)`?\s+\w+/gm;
       const columns: string[] = [];
       let colMatch;
 
       while ((colMatch = columnRegex.exec(body))) {
         const colName = colMatch[1];
-        // Ignorar palabras clave de SQL que no son columnas
+
         const keywords = ['PRIMARY', 'FOREIGN', 'KEY', 'CONSTRAINT', 'UNIQUE', 'INDEX'];
         if (colName && !keywords.includes(colName.toUpperCase())) {
            columns.push(colName);
         }
       }
-      // --- FIN DEL CÓDIGO CORREGIDO ---
 
       tables.push({ name, columns });
     }
@@ -65,17 +61,36 @@ export class ImportService {
     const schema: Record<string, string[]> = {};
     for (const row of result as any[]) {
       if (!schema[row.TABLE_NAME]) schema[row.TABLE_NAME] = [];
-      schema[row.TABLE_NAME].push(row.TABLE_NAME); // Error sutil corregido: debería ser row.COLUMN_NAME
+      
+      schema[row.TABLE_NAME].push(row.COLUMN_NAME);
+
     }
-    // Corrección del error sutil en el bucle de arriba:
-    const correctSchema: Record<string, string[]> = {};
-    for (const row of result as any[]) {
-      if (!correctSchema[row.TABLE_NAME]) correctSchema[row.TABLE_NAME] = [];
-      correctSchema[row.TABLE_NAME].push(row.COLUMN_NAME);
-    }
-    return correctSchema;
+    return schema;
   }
 
+  // Esta función es un parser de tuplas SQL más inteligente.
+  // Reemplaza el simple .split(',')
+  private parseSqlValues(tupleBody: string): (string | number | null)[] {
+    const values: (string | number | null)[] = [];
+    // Esta regex captura: 'strings con comas', 123.45, 123, y NULL
+    const valueRegex = /'((?:[^'\\]|\\.)*)'|(\d+\.\d+)|(\d+)|(NULL)/g;
+    let match;
+
+    while ((match = valueRegex.exec(tupleBody))) {
+      if (match[1] !== undefined) { 
+        // Maneja comillas escapadas (ej. 'O\'Connor')
+        values.push(match[1].replace(/\\'/g, "'"));
+      } else if (match[2] !== undefined) { 
+        values.push(Number(match[2]));
+      } else if (match[3] !== undefined) { 
+        values.push(Number(match[3]));
+      } else if (match[4] !== undefined) { 
+        values.push(null);
+      }
+    }
+    return values;
+  }
+  // --- Fin Arreglo 3 ---
 
   async preview(body: any) {
     const { uploadId, sourceTable, destTable, mapping } = body;
@@ -83,7 +98,7 @@ export class ImportService {
     const content = fs.readFileSync(sqlFile, 'utf8');
 
     const insertRegex = new RegExp(
-      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
+      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\S]+?);`,
       'gi',
     );
 
@@ -95,15 +110,15 @@ export class ImportService {
       const tuples = valuesChunk.match(/\(([^)]+)\)/g) || [];
 
       for (const t of tuples.slice(0, 5)) {
-        const vals = t
-          .replace(/[()]/g, '')
-          .split(',')
-          .map(v => v.trim().replace(/^'|'$/g, ''));
+        const vals = this.parseSqlValues(t.substring(1, t.length - 1));
+
         const row: any = {};
         for (const destCol in mapping) {
           const src = mapping[destCol];
           if (src === '__static') row[destCol] = body.staticValues?.[destCol] ?? null;
-          else if (src && cols.includes(src)) row[destCol] = vals[cols.indexOf(src)];
+          else if (src && cols.includes(src)) {
+            row[destCol] = vals[cols.indexOf(src)];
+          }
         }
         preview.push(row);
       }
@@ -117,7 +132,7 @@ export class ImportService {
     const content = fs.readFileSync(sqlFile, 'utf8');
 
     const insertRegex = new RegExp(
-      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
+      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\S]+?);`,
       'gi',
     );
 
@@ -129,15 +144,16 @@ export class ImportService {
       const tuples = valuesChunk.match(/\(([^)]+)\)/g) || [];
 
       for (const t of tuples) {
-        const vals = t
-          .replace(/[()]/g, '')
-          .split(',')
-          .map(v => v.trim().replace(/^'|'$/g, ''));
+        const vals = this.parseSqlValues(t.substring(1, t.length - 1));
+
         const row: any = {};
         for (const destCol in mapping) {
           const src = mapping[destCol];
-          if (src === '__static') row[destCol] = staticValues?.[destCol] ?? null;
-          else if (src && cols.includes(src)) row[destCol] = vals[cols.indexOf(src)];
+          if (src === '__static') {
+            row[destCol] = staticValues?.[destCol] ?? null;
+          } else if (src && cols.includes(src)) {
+            row[destCol] = vals[cols.indexOf(src)];
+          }
         }
         rowsToInsert.push(row);
       }
