@@ -160,7 +160,7 @@ async emitirDte(payload: any) {
   buffers.push(BOLD_OFF);
 
   // Logo en base64 para mostrar/preview
-  if (logoBase64) buffers.push(textBuf(`[LOGO_BASE64:${logoBase64}]\n`));
+  // if (logoBase64) buffers.push(textBuf(`[LOGO_BASE64:${logoBase64}]\n`));
 
   buffers.push(textBuf(`${empresaDemo.direccion}, ${empresaDemo.comuna}\n`));
   buffers.push(textBuf(`${empresaDemo.ciudad} — Tel: ${empresaDemo.telefono}\n`));
