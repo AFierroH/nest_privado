@@ -17,7 +17,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar dependencias (canvas compila aquí)
-RUN npm install --omit=dev
+RUN npm install 
 
 COPY . .
 
