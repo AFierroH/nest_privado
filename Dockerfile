@@ -1,6 +1,5 @@
-FROM node:22-bullseye
+FROM node:22-bullseye AS builder
 
-# Instalar dependencias necesarias para node-canvas
 RUN apt-get update && apt-get install -y \
     python3 \
     pkg-config \
@@ -15,13 +14,26 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY package*.json ./
+COPY prisma ./prisma
 
-# Instalar dependencias (canvas compila aquí)
-RUN npm install 
+RUN npm install
 
 COPY . .
 
-# Compilar NestJS
+RUN npx prisma generate
+
 RUN npm run build
 
-CMD ["npm", "run", "start:prod"]
+FROM node:22-bullseye
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install --omit=dev
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+COPY --from=builder /app/prisma ./prisma
+
+CMD ["node", "dist/main.js"]
