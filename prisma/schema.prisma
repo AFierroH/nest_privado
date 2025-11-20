@@ -15,6 +15,7 @@ model empresa {
   direccion    String?
   telefono     String?
   email        String?
+  logo_url     String?
   codigo_sii   String
   clave_sii    String
   usuarios     usuario[]
