@@ -12,7 +12,7 @@ export class EmpresaService {
   // --- NUEVO: Buscar una sola empresa por ID ---
   getEmpresaById(id: number) {
     return this.prisma.empresa.findUnique({
-      where: { id_empresa: id } // Asegúrate que en tu schema.prisma la clave se llame 'id_empresa' o 'id'
+      where: { id_empresa: id } 
     });
   }
 
@@ -22,7 +22,7 @@ export class EmpresaService {
   updateLogo(id: number, logoUrl: string) {
     return this.prisma.empresa.update({
       where: { id_empresa: id },
-      data: { logo_url: logoUrl } // Asegúrate de tener este campo en tu schema.prisma
+      data: { logo_url: logoUrl } 
     });
   }
 }
