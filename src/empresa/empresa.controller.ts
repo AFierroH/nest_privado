@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Param, ParseIntPipe, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname, join } from 'path'; 
+import { extname, join } from 'path'; // <--- IMPORTANTE: Importar join
 import { EmpresaService } from './empresa.service';
 
 @Controller('empresas')
@@ -19,10 +19,11 @@ export class EmpresaController {
     })
   }))
   async uploadLogo(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-        throw new Error('No se subió ningún archivo');
-    }
+    if (!file) throw new Error('Archivo no recibido');
+    
+    // URL pública para guardar en BD
     const logoUrl = `http://147.182.245.46:3000/uploads/${file.filename}`;
+    
     return this.empresaService.updateLogo(id, logoUrl);
   }
 
