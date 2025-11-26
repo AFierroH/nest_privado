@@ -49,21 +49,17 @@ model categoria {
 }
 
 model producto {
-  id_producto   Int      @id @default(autoincrement())
-  nombre        String
-  descripcion   String?
-  precio        Float
-  stock         Int
-
-  es_exento     Boolean  @default(false) // Para el Caso 4 (1 = Exento)
-  unidad_medida String?  // Para el Caso 5 (Ej: "Kg")
-  
-  id_categoria  Int
-  id_empresa    Int
-  categoria     categoria @relation(fields: [id_categoria], references: [id_categoria])
-  empresa       empresa   @relation(fields: [id_empresa], references: [id_empresa])
-  detalles      detalle_venta[]
-  historial     historial_productos[]
+  id_producto  Int      @id @default(autoincrement())
+  nombre       String
+  descripcion  String?
+  precio       Float
+  stock        Int
+  id_categoria Int
+  id_empresa   Int
+  categoria    categoria @relation(fields: [id_categoria], references: [id_categoria])
+  empresa      empresa   @relation(fields: [id_empresa], references: [id_empresa])
+  detalles     detalle_venta[]       // relación hacia detalle_venta
+  historial    historial_productos[]
 }
 
 model venta {
