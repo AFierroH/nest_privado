@@ -7,7 +7,11 @@ import { join } from 'path';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useStaticAssets(join(__dirname, '..', 'uploads'), { prefix: '/uploads/' });
-  app.enableCors();
+  app.enableCors({
+      origin: true,
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      credentials: true,
+  });
   app.setGlobalPrefix('api');
   await app.listen(3000);
   console.log(`Servidor corriendo en: ${await app.getUrl()}`);
