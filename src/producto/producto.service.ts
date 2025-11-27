@@ -20,7 +20,7 @@ async getProductos(search?: string, idEmpresa?: number) {
 
     return this.prisma.producto.findMany({
       where: whereClause,
-      take: 1000, // Limitar resultados para que no explote si hay 10.000
+      take: 10000, // Limitar resultados para que no explote si hay 10.000
       orderBy: { nombre: 'asc' }
     });
   }
