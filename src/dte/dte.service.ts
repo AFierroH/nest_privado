@@ -97,21 +97,20 @@ export class DteService {
     formData.append('input', JSON.stringify(jsonInput));
 
     const apiKey = this.configService.get<string>('SIMPLEAPI_KEY') || '';
+    if (!apiKey) throw new Error("ERROR CRÍTICO: No hay SIMPLEAPI_KEY en .env");
     const urlApi = 'https://api.simpleapi.cl/api/v1/dte/generar';
 
     try {
         const response = await axios.post(urlApi, formData, {
             headers: {
                 ...formData.getHeaders(),
-                'Authorization': 'Basic ' + Buffer.from(apiKey).toString('base64')
+            },
+            auth: {
+                username: apiKey,
+                password: '' 
             }
         });
-
         console.log("Respuesta SimpleAPI:", response.data);
-
-        // SimpleAPI REST suele devolver { "Folio": 123, "TED": "...", "XML": "..." }
-        // OJO: A veces devuelven "TED" (string XML del timbre) y a veces "Timbre" (Base64).
-        // Si viene en Base64, hay que decodificarlo. Pero SimpleAPI suele mandar el XML crudo.
         const timbreRaw = response.data.TED || response.data.Timbre;
 
         return {
