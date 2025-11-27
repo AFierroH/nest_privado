@@ -6,8 +6,12 @@ export class ProductoController {
   constructor(private readonly productoService: ProductoService) {}
 
   @Get()
-  async getProductos(@Query('search') search?: string) {
-    return this.productoService.getProductos(search);
+  async getAll(
+    @Query('search') search: string,
+    @Query('empresaId') empresaId: string 
+  ) {
+    const id = empresaId ? parseInt(empresaId) : undefined;
+    return this.productoService.getProductos(search, id);
   }
 
   @Post()
