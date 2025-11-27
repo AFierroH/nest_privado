@@ -7,13 +7,9 @@ export class ProductoService {
 
 async getProductos(search?: string, idEmpresa?: number) {
     const whereClause: any = {};
-
-    // 1. Filtro por Búsqueda (Nombre o Código)
     if (search) {
       whereClause.OR = [
         { nombre: { contains: search } },
-        // Puedes agregar busqueda por ID si quieres que sea como código de barras
-        // { id_producto: !isNaN(Number(search)) ? Number(search) : undefined }
       ];
     }
 
@@ -24,7 +20,7 @@ async getProductos(search?: string, idEmpresa?: number) {
 
     return this.prisma.producto.findMany({
       where: whereClause,
-      take: 100, // Limitar resultados para que no explote si hay 10.000
+      take: 1000, // Limitar resultados para que no explote si hay 10.000
       orderBy: { nombre: 'asc' }
     });
   }
