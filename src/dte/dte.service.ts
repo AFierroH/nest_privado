@@ -24,7 +24,7 @@ export class DteService {
     const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII2128917639120251126250.xml'); 
 
     if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
-        throw new Error(`Faltan archivos. Buscando en: ${certPath}`);
+        throw new Error(`Faltan archivos de certificación en: ${certPath}`);
     }
 
     const detallesDTE = venta.detalle_venta.map((d, i) => {
@@ -40,17 +40,12 @@ export class DteService {
     const passwordCertificado = this.configService.get<string>('SIMPLEAPI_CERT_PASS');
     let apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
 
-    // --- BLOQUE DE DEPURACIÓN CRÍTICO ---
-    if (!apiKey) {
-        console.error("❌ ERROR: La variable SIMPLEAPI_KEY es undefined o vacía.");
-        throw new Error("Falta SIMPLEAPI_KEY en .env");
-    }
-
-    // Limpiamos espacios y comillas que a veces se cuelan en Docker
+    if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY en .env");
+    
+    // Limpieza de seguridad (quitar comillas o espacios accidentales)
     apiKey = apiKey.trim().replace(/^['"]|['"]$/g, ''); 
 
-    console.log(`🔑 DEBUG API KEY: Longitud=${apiKey.length}, Inicio=${apiKey.substring(0, 4)}****`);
-    // ------------------------------------
+    console.log(`🔑 Usando API KEY directa: ${apiKey.substring(0, 4)}... (Longitud: ${apiKey.length})`);
 
     if (!passwordCertificado) throw new Error("Falta SIMPLEAPI_CERT_PASS en .env");
 
@@ -102,19 +97,16 @@ export class DteService {
     const urlApi = 'https://api.simpleapi.cl/api/v1/dte/generar';
 
     try {
-        console.log("Enviando a SimpleAPI...");
+        console.log("Enviando petición a SimpleAPI...");
         
         const response = await axios.post(urlApi, formData, {
             headers: {
                 ...formData.getHeaders(),
-            },
-            auth: {
-                username: apiKey, 
-                password: '' 
+                'Authorization': apiKey 
             }
         });
 
-        console.log("✅ Respuesta SimpleAPI Éxito. Folio:", response.data.Folio);
+        console.log("Respuesta SimpleAPI Éxito. Folio:", response.data.Folio);
 
         const timbreRaw = response.data.TED || response.data.Timbre;
 
@@ -128,12 +120,6 @@ export class DteService {
     } catch (error) {
         const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
         console.error("Error SimpleAPI:", errorMsg);
-        
-        // Si es 401, lanzamos error específico
-        if (error.response?.status === 401) {
-             console.error("Verifica que tu API KEY sea correcta en https://simpleapi.cl/admin");
-        }
-        
         return { ok: false, error: errorMsg };
     }
   }
