@@ -10,9 +10,8 @@ import { PrismaService } from '../prisma.service';
 export class DteService {
   constructor(private prisma: PrismaService, private configService: ConfigService) {}
   
-  // Ahora aceptamos un 'folioManual' opcional para las pruebas
   async emitirDteDesdeVenta(idVenta: number, casoPrueba: string = '', folioManual: number = 0) {
-    console.log(`Iniciando emisión DTE SimpleAPI para venta #${idVenta} [Caso: ${casoPrueba}] [Folio Manual: ${folioManual}]`);
+    console.log(`Iniciando emisión DTE [Caso: ${casoPrueba}] [Folio Manual: ${folioManual}]`);
 
     const venta = await this.prisma.venta.findUnique({
       where: { id_venta: idVenta },
@@ -25,13 +24,12 @@ export class DteService {
     const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII2128917639120251126250.xml'); 
 
     if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
-        throw new Error(`Faltan archivos de certificación en: ${certPath}`);
+        throw new Error(`Faltan archivos certificados en: ${certPath}`);
     }
 
-    // --- MAPEO INTELIGENTE PARA SET DE PRUEBAS ---
+    // --- MAPEO DE PRODUCTOS (LÓGICA SET DE PRUEBAS) ---
     const detallesDTE = venta.detalle_venta.map((d, i) => {
-        // Usamos el nombre que viene en el detalle (el que mandamos desde el frontend)
-        // Esto es crucial porque en el frontend mandamos los nombres exactos del PDF (ej: "Arroz")
+        // Usamos el nombre guardado en la venta para respetar los nombres del Set de Pruebas
         const nombreItem = (d as any).nombre || d.producto.nombre; 
         
         const itemDTE: any = {
@@ -42,14 +40,16 @@ export class DteService {
             "MontoItem": Math.round(d.subtotal),
         };
 
-        if (casoPrueba === 'CASO-4') {
-            if (nombreItem.toLowerCase().includes('exento')) {
-                itemDTE.IndExe = 1; // 1 = Exento de IVA
-            }
+        // CASO 4: Ítem exento
+        // El set dice "item exento 2". Si detectamos esa frase, marcamos exención.
+        if (casoPrueba === 'CASO-4' && nombreItem.toLowerCase().includes('exento')) {
+            itemDTE.IndExe = 1; 
         }
 
+        // CASO 5: Unidad Kg
+        // El set dice "Arroz". Si es caso 5, forzamos Kg.
         if (casoPrueba === 'CASO-5') {
-            itemDTE.UnmdItem = "Kg"; // Obligatorio según el set para este caso
+            itemDTE.UnmdItem = "Kg"; 
         }
 
         return itemDTE;
@@ -58,18 +58,13 @@ export class DteService {
     const passwordCertificado = this.configService.get<string>('SIMPLEAPI_CERT_PASS');
     let apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
 
-    if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY en .env");
+    if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY");
     apiKey = apiKey.trim().replace(/^['"]|['"]$/g, ''); 
 
-    if (!passwordCertificado) throw new Error("Falta SIMPLEAPI_CERT_PASS en .env");
-
-    // --- GESTIÓN DE FOLIOS ---
-    // Si el frontend nos manda un folio manual (ej: 1, 2, 3), lo usamos.
-    // Si no, usamos el ID de la venta como fallback (para producción).
-    // OJO: SimpleAPI valida que el folio esté dentro del rango del CAF.
+    // Usar folio manual si existe, sino el ID de venta
     const folioFinal = folioManual > 0 ? folioManual : venta.id_venta;
 
-    console.log(`🎫 Usando Folio para XML: ${folioFinal}`);
+    console.log(`🎫 Generando XML con Folio: ${folioFinal}`);
 
     const jsonInput = {
         "Documento": {
@@ -94,16 +89,16 @@ export class DteService {
                     "Comuna": "Temuco"
                 },
                 "Totales": {
+                    // SimpleAPI recalcula, pero enviamos el total referencial
                     "MontoTotal": Math.round(venta.total)
                 }
             },
             "Detalles": detallesDTE,
-            // Referencia es OBLIGATORIA para identificar que es una prueba del SET
             "Referencia": casoPrueba ? [{
                 "NroLinRef": 1,
-                "TpoDocRef": "SET", // Código para Set de Pruebas
+                "TpoDocRef": "SET",
                 "FolioRef": "0",
-                "RazonRef": casoPrueba // Ej: CASO-1
+                "RazonRef": casoPrueba
             }] : []
         },
         "Certificado": {
@@ -120,7 +115,7 @@ export class DteService {
     const urlApi = 'https://api.simpleapi.cl/api/v1/dte/generar';
 
     try {
-        console.log("Enviando a SimpleAPI...");
+        console.log("📡 Enviando a SimpleAPI...");
         
         const response = await axios.post(urlApi, formData, {
             headers: {
@@ -129,15 +124,15 @@ export class DteService {
             }
         });
 
-        console.log("Respuesta SimpleAPI Éxito. Folio:", response.data.Folio);
-
-        const timbreRaw = response.data.TED || response.data.Timbre;
+        // Log completo para depurar si sale undefined
+        console.log("Respuesta SimpleAPI DATA:", JSON.stringify(response.data).substring(0, 200) + "...");
 
         return {
             ok: true,
-            folio: response.data.Folio,
-            timbre: timbreRaw, 
-            xml: response.data.XML
+            // Si la API no devuelve folio (a veces pasa en modo manual), usamos el que enviamos
+            folio: response.data.Folio || folioFinal,
+            timbre: response.data.TED || response.data.Timbre, 
+            xml: response.data.XML // <--- ESTE ES EL ARCHIVO QUE NECESITAS
         };
 
     } catch (error) {
