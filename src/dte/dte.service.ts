@@ -22,7 +22,7 @@ export class DteService {
 
     // RUTAS CERTIFICADOS (Asegúrate que sean correctas en tu servidor)
     const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 
-    const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII2128917639120251126250.xml'); 
+    const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII21289176395120251128225.xml'); 
 
     if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
         console.error("Faltan certificados");
