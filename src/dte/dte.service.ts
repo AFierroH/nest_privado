@@ -27,11 +27,8 @@ export class DteService {
         throw new Error(`Faltan archivos certificados en: ${certPath}`);
     }
 
-    // --- MAPEO DE PRODUCTOS (LÓGICA SET DE PRUEBAS) ---
     const detallesDTE = venta.detalle_venta.map((d, i) => {
-        // Usamos el nombre guardado en la venta para respetar los nombres del Set de Pruebas
         const nombreItem = (d as any).nombre || d.producto.nombre; 
-        
         const itemDTE: any = {
             "NroLinDet": i + 1,
             "Nombre": nombreItem.substring(0, 80), 
@@ -40,18 +37,12 @@ export class DteService {
             "MontoItem": Math.round(d.subtotal),
         };
 
-        // CASO 4: Ítem exento
-        // El set dice "item exento 2". Si detectamos esa frase, marcamos exención.
         if (casoPrueba === 'CASO-4' && nombreItem.toLowerCase().includes('exento')) {
             itemDTE.IndExe = 1; 
         }
-
-        // CASO 5: Unidad Kg
-        // El set dice "Arroz". Si es caso 5, forzamos Kg.
         if (casoPrueba === 'CASO-5') {
             itemDTE.UnmdItem = "Kg"; 
         }
-
         return itemDTE;
     });
 
@@ -61,7 +52,6 @@ export class DteService {
     if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY");
     apiKey = apiKey.trim().replace(/^['"]|['"]$/g, ''); 
 
-    // Usar folio manual si existe, sino el ID de venta
     const folioFinal = folioManual > 0 ? folioManual : venta.id_venta;
 
     console.log(`🎫 Generando con Folio: ${folioFinal}`);
@@ -89,7 +79,6 @@ export class DteService {
                     "Comuna": "Temuco"
                 },
                 "Totales": {
-                    // SimpleAPI recalcula, pero enviamos el total referencial
                     "MontoTotal": Math.round(venta.total)
                 }
             },
@@ -120,40 +109,46 @@ export class DteService {
         const response = await axios.post(urlApi, formData, {
             headers: {
                 ...formData.getHeaders(),
-                'Authorization': apiKey 
+                'Authorization': apiKey,
+                // Quitamos Accept JSON para recibir lo que manden
             }
         });
 
-        // --- MANEJO DE RESPUESTA XML ---
+        // --- MANEJO DE RESPUESTA ---
         let xmlFinal = '';
         let timbreFinal = '';
         
-        // A veces devuelve el XML directo como string
-        if (typeof response.data === 'string' && response.data.trim().startsWith('<')) {
+        // 1. Si es texto plano (XML Crudo)
+        if (typeof response.data === 'string') {
             console.log("Recibido XML Texto Plano");
             xmlFinal = response.data;
+            
+            // Extraer el tag <TED> usando Regex
+            const matchTED = xmlFinal.match(/<TED[\s\S]*?<\/TED>/);
+            if (matchTED) {
+                timbreFinal = matchTED[0];
+                console.log("Timbre (TED) extraído del XML");
+            } else {
+                console.warn("No se encontró etiqueta TED en el XML");
+            }
         } 
-        // A veces devuelve JSON
+        // 2. Si es Objeto JSON
         else if (typeof response.data === 'object') {
             console.log("Recibido Objeto JSON");
             xmlFinal = response.data.XML || response.data.xml;
             timbreFinal = response.data.TED || response.data.Timbre;
         }
 
-        // Fallback de emergencia
+        // Fallback
         if (!xmlFinal && response.data) {
              xmlFinal = JSON.stringify(response.data);
-             if (!xmlFinal.startsWith('<')) xmlFinal = ''; 
         }
-
-        if (xmlFinal) console.log("XML capturado ok");
-        else console.warn("Alerta: Respuesta sin XML");
 
         return {
             ok: true,
             folio: folioFinal, 
-            timbre: timbreFinal, 
-            xml: xmlFinal // Esto es lo que descargará el frontend
+            timbre: timbreFinal, // ¡Ahora sí enviamos el timbre!
+            xml: xmlFinal 
         };
 
     } catch (error) {
