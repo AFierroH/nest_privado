@@ -13,7 +13,6 @@ export class DteService {
   async emitirDteDesdeVenta(idVenta: number, casoPrueba: string = '') {
     console.log(`Iniciando emisión DTE SimpleAPI (REST) para venta #${idVenta}`);
 
-    // 1. Buscar venta
     const venta = await this.prisma.venta.findUnique({
       where: { id_venta: idVenta },
       include: { empresa: true, detalle_venta: { include: { producto: true } } }
@@ -21,8 +20,6 @@ export class DteService {
 
     if (!venta) throw new Error('Venta no encontrada');
 
-    // 2. Rutas de archivos (Certificado y CAF)
-    // Usamos process.cwd() para buscar en la raíz del contenedor (/app/certificados)
     const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 
     const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII2128917639120251126250.xml'); 
 
@@ -30,7 +27,6 @@ export class DteService {
         throw new Error(`Faltan archivos. Buscando en: ${certPath}`);
     }
 
-    // 3. Construir el JSON "Documento"
     const detallesDTE = venta.detalle_venta.map((d, i) => {
         return {
             "NroLinDet": i + 1,
@@ -42,10 +38,21 @@ export class DteService {
     });
 
     const passwordCertificado = this.configService.get<string>('SIMPLEAPI_CERT_PASS');
-    const apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
+    let apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
+
+    // --- BLOQUE DE DEPURACIÓN CRÍTICO ---
+    if (!apiKey) {
+        console.error("❌ ERROR: La variable SIMPLEAPI_KEY es undefined o vacía.");
+        throw new Error("Falta SIMPLEAPI_KEY en .env");
+    }
+
+    // Limpiamos espacios y comillas que a veces se cuelan en Docker
+    apiKey = apiKey.trim().replace(/^['"]|['"]$/g, ''); 
+
+    console.log(`🔑 DEBUG API KEY: Longitud=${apiKey.length}, Inicio=${apiKey.substring(0, 4)}****`);
+    // ------------------------------------
 
     if (!passwordCertificado) throw new Error("Falta SIMPLEAPI_CERT_PASS en .env");
-    if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY en .env");
 
     const jsonInput = {
         "Documento": {
@@ -87,7 +94,6 @@ export class DteService {
         }
     };
 
-    // 4. Preparar FormData
     const formData = new FormData();
     formData.append('files', fs.createReadStream(certPath));
     formData.append('files2', fs.createReadStream(cafPath));
@@ -101,16 +107,14 @@ export class DteService {
         const response = await axios.post(urlApi, formData, {
             headers: {
                 ...formData.getHeaders(),
-                // ELIMINAMOS el header manual que causaba problemas
             },
-            // AQUI ESTA LA MAGIA PARA EL ERROR 401 👇
             auth: {
-                username: apiKey, // Axios se encarga de codificar esto correctamente
+                username: apiKey, 
                 password: '' 
             }
         });
 
-        console.log("Respuesta SimpleAPI Éxito. Folio:", response.data.Folio);
+        console.log("✅ Respuesta SimpleAPI Éxito. Folio:", response.data.Folio);
 
         const timbreRaw = response.data.TED || response.data.Timbre;
 
@@ -122,9 +126,14 @@ export class DteService {
         };
 
     } catch (error) {
-        // Mejor manejo de error para ver qué dice la API realmente
         const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
         console.error("Error SimpleAPI:", errorMsg);
+        
+        // Si es 401, lanzamos error específico
+        if (error.response?.status === 401) {
+             console.error("Verifica que tu API KEY sea correcta en https://simpleapi.cl/admin");
+        }
+        
         return { ok: false, error: errorMsg };
     }
   }
