@@ -24,7 +24,7 @@ export class DteService {
     const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII2128917639120251126250.xml'); 
 
     if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
-        throw new Error(`Faltan archivos de certificación en: ${certPath}`);
+        throw new Error(`Faltan archivos. Buscando en: ${certPath}`);
     }
 
     const detallesDTE = venta.detalle_venta.map((d, i) => {
@@ -41,20 +41,18 @@ export class DteService {
     let apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
 
     if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY en .env");
-    
-    // Limpieza de seguridad (quitar comillas o espacios accidentales)
     apiKey = apiKey.trim().replace(/^['"]|['"]$/g, ''); 
 
-    console.log(`🔑 Usando API KEY directa: ${apiKey.substring(0, 4)}... (Longitud: ${apiKey.length})`);
-
     if (!passwordCertificado) throw new Error("Falta SIMPLEAPI_CERT_PASS en .env");
+    const folioAUsar = 1; 
+    console.log(`🎫 Usando Folio: ${folioAUsar} (Asegúrate que no esté usado en el SII)`);
 
     const jsonInput = {
         "Documento": {
             "Encabezado": {
                 "IdentificacionDTE": {
                     "TipoDTE": 39,
-                    "Folio": 0, 
+                    "Folio": folioAUsar, // <--- AQUÍ ESTÁ EL CAMBIO (Antes era 0)
                     "FechaEmision": new Date().toISOString().split('T')[0],
                     "IndicadorServicio": 3
                 },
