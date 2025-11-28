@@ -22,47 +22,46 @@ export class DteService {
     if (!venta) throw new Error('Venta no encontrada');
 
     // 2. Rutas de archivos (Certificado y CAF)
-    // ASEGÚRATE DE PONER TUS ARCHIVOS AQUÍ
+    // Usamos process.cwd() para buscar en la raíz del contenedor (/app/certificados)
     const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 
     const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII2128917639120251126250.xml'); 
 
     if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
-        throw new Error("Faltan archivos de Certificado (.p12) o CAF (.xml) en la carpeta certificados/");
+        throw new Error(`Faltan archivos. Buscando en: ${certPath}`);
     }
 
-    // 3. Construir el JSON "Documento" según tu documentación
+    // 3. Construir el JSON "Documento"
     const detallesDTE = venta.detalle_venta.map((d, i) => {
-        const item: any = {
+        return {
             "NroLinDet": i + 1,
-            "Nombre": d.producto.nombre.substring(0, 40), // SimpleAPI a veces limita largo
+            "Nombre": d.producto.nombre.substring(0, 40),
             "Cantidad": d.cantidad,
             "Precio": Math.round(d.precio_unitario), 
             "MontoItem": Math.round(d.subtotal),
         };
-        
-        
-        return item;
     });
+
     const passwordCertificado = this.configService.get<string>('SIMPLEAPI_CERT_PASS');
-    
-    if (!passwordCertificado) {
-        throw new Error("ERROR CRÍTICO: No se ha configurado SIMPLEAPI_CERT_PASS en el archivo .env");
-    }
+    const apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
+
+    if (!passwordCertificado) throw new Error("Falta SIMPLEAPI_CERT_PASS en .env");
+    if (!apiKey) throw new Error("Falta SIMPLEAPI_KEY en .env");
+
     const jsonInput = {
         "Documento": {
             "Encabezado": {
                 "IdentificacionDTE": {
-                    "TipoDTE": 39, // Boleta
-                    "Folio": 0,    // 0 = SimpleAPI usa el siguiente del CAF enviado
-                    "FechaEmision": new Date().toISOString().split('T')[0], // YYYY-MM-DD
-                    "IndicadorServicio": 3 // Ventas y Servicios
+                    "TipoDTE": 39,
+                    "Folio": 0, 
+                    "FechaEmision": new Date().toISOString().split('T')[0],
+                    "IndicadorServicio": 3
                 },
                 "Emisor": {
                     "Rut": "21289176-2", 
                     "RazonSocialBoleta": "MiPOSra",
-                    "GiroBoleta": "Servicios Informaticos", // Ajustar a tu giro real
+                    "GiroBoleta": "Servicios Informaticos",
                     "DireccionOrigen": venta.empresa.direccion || "Sin direccion",
-                    "ComunaOrigen": "Temuco" // Ajustar
+                    "ComunaOrigen": "Temuco"
                 },
                 "Receptor": {
                     "Rut": "66666666-6",
@@ -83,34 +82,36 @@ export class DteService {
             }] : []
         },
         "Certificado": {
-            "Rut": "21289176-2", // Rut del dueño del certificado (sin DV ni puntos)
-            "Password": passwordCertificado // <--- PON TU CONTRASEÑA REAL AQUÍ
+            "Rut": "21289176-2",
+            "Password": passwordCertificado
         }
     };
 
-    // 4. Preparar FormData (Multipart)
+    // 4. Preparar FormData
     const formData = new FormData();
-    
-    // El orden importa según la documentación:
     formData.append('files', fs.createReadStream(certPath));
     formData.append('files2', fs.createReadStream(cafPath));
     formData.append('input', JSON.stringify(jsonInput));
 
-    const apiKey = this.configService.get<string>('SIMPLEAPI_KEY') || '';
-    if (!apiKey) throw new Error("ERROR CRÍTICO: No hay SIMPLEAPI_KEY en .env");
     const urlApi = 'https://api.simpleapi.cl/api/v1/dte/generar';
 
     try {
+        console.log("Enviando a SimpleAPI...");
+        
         const response = await axios.post(urlApi, formData, {
             headers: {
                 ...formData.getHeaders(),
+                // ELIMINAMOS el header manual que causaba problemas
             },
+            // AQUI ESTA LA MAGIA PARA EL ERROR 401 👇
             auth: {
-                username: apiKey,
+                username: apiKey, // Axios se encarga de codificar esto correctamente
                 password: '' 
             }
         });
-        console.log("Respuesta SimpleAPI:", response.data);
+
+        console.log("Respuesta SimpleAPI Éxito. Folio:", response.data.Folio);
+
         const timbreRaw = response.data.TED || response.data.Timbre;
 
         return {
@@ -121,8 +122,10 @@ export class DteService {
         };
 
     } catch (error) {
-        console.error("Error SimpleAPI:", error.response?.data || error.message);
-        return { ok: false, error: JSON.stringify(error.response?.data) || error.message };
+        // Mejor manejo de error para ver qué dice la API realmente
+        const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+        console.error("Error SimpleAPI:", errorMsg);
+        return { ok: false, error: errorMsg };
     }
   }
 }
