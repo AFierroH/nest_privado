@@ -11,7 +11,7 @@ export class DteService {
   constructor(private prisma: PrismaService, private configService: ConfigService) {}
   
   async emitirDteDesdeVenta(idVenta: number, casoPrueba: string = '', folioManual: number = 0) {
-    console.log(`Iniciando emisión DTE [Caso: ${casoPrueba}] [Folio Manual: ${folioManual}]`);
+    console.log(`🚀 Iniciando emisión DTE [Caso: ${casoPrueba}] [Folio Manual: ${folioManual}]`);
 
     const venta = await this.prisma.venta.findUnique({
       where: { id_venta: idVenta },
@@ -64,7 +64,7 @@ export class DteService {
     // Usar folio manual si existe, sino el ID de venta
     const folioFinal = folioManual > 0 ? folioManual : venta.id_venta;
 
-    console.log(`🎫 Generando XML con Folio: ${folioFinal}`);
+    console.log(`🎫 Generando con Folio: ${folioFinal}`);
 
     const jsonInput = {
         "Documento": {
@@ -115,7 +115,7 @@ export class DteService {
     const urlApi = 'https://api.simpleapi.cl/api/v1/dte/generar';
 
     try {
-        console.log("📡 Enviando a SimpleAPI...");
+        console.log("Enviando a SimpleAPI...");
         
         const response = await axios.post(urlApi, formData, {
             headers: {
@@ -124,15 +124,36 @@ export class DteService {
             }
         });
 
-        // Log completo para depurar si sale undefined
-        console.log("Respuesta SimpleAPI DATA:", JSON.stringify(response.data).substring(0, 200) + "...");
+        // --- MANEJO DE RESPUESTA XML ---
+        let xmlFinal = '';
+        let timbreFinal = '';
+        
+        // A veces devuelve el XML directo como string
+        if (typeof response.data === 'string' && response.data.trim().startsWith('<')) {
+            console.log("Recibido XML Texto Plano");
+            xmlFinal = response.data;
+        } 
+        // A veces devuelve JSON
+        else if (typeof response.data === 'object') {
+            console.log("Recibido Objeto JSON");
+            xmlFinal = response.data.XML || response.data.xml;
+            timbreFinal = response.data.TED || response.data.Timbre;
+        }
+
+        // Fallback de emergencia
+        if (!xmlFinal && response.data) {
+             xmlFinal = JSON.stringify(response.data);
+             if (!xmlFinal.startsWith('<')) xmlFinal = ''; 
+        }
+
+        if (xmlFinal) console.log("XML capturado ok");
+        else console.warn("Alerta: Respuesta sin XML");
 
         return {
             ok: true,
-            // Si la API no devuelve folio (a veces pasa en modo manual), usamos el que enviamos
-            folio: response.data.Folio || folioFinal,
-            timbre: response.data.TED || response.data.Timbre, 
-            xml: response.data.XML // <--- ESTE ES EL ARCHIVO QUE NECESITAS
+            folio: folioFinal, 
+            timbre: timbreFinal, 
+            xml: xmlFinal // Esto es lo que descargará el frontend
         };
 
     } catch (error) {
