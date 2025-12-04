@@ -11,7 +11,7 @@ export class DteService {
   constructor(private prisma: PrismaService, private configService: ConfigService) {}
   
   async emitirDteDesdeVenta(idVenta: number, casoPrueba: string = '', folioManual: number = 0) {
-    console.log(`🚀 Iniciando emisión DTE Real ID: ${idVenta}`);
+    console.log(`Iniciando emisión DTE Real ID: ${idVenta}`);
 
     const venta = await this.prisma.venta.findUnique({
       where: { id_venta: idVenta },

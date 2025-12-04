@@ -5,25 +5,28 @@ import { PrismaService } from '../prisma.service';
 export class ProductoService {
   constructor(private prisma: PrismaService) {}
 
-async getProductos(search?: string, idEmpresa?: number) {
+// producto.service.ts
+async getProductos(search?: string, idEmpresa?: number, page = 1, limit = 20) {
     const whereClause: any = {};
     if (search) {
       whereClause.OR = [
-        { nombre: { contains: search } },
+        { nombre: { contains: search } }, // Prisma en Postgres es Case-Sensitive por defecto, cuidado
       ];
     }
-
-    // 2. FILTRO POR EMPRESA (CRÍTICO)
     if (idEmpresa) {
       whereClause.id_empresa = idEmpresa;
     }
 
+    // CALCULAR EL SALTO
+    const skip = (page - 1) * limit;
+
     return this.prisma.producto.findMany({
       where: whereClause,
-      take: 10000, // Limitar resultados para que no explote si hay 10.000
+      skip: skip,      // <--- Saltar los anteriores
+      take: limit,     // <--- Tomar solo el límite
       orderBy: { nombre: 'asc' }
     });
-  }
+}
 
   async createProducto(data: any) {
     return this.prisma.producto.create({ data });
