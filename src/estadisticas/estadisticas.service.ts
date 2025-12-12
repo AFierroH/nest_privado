@@ -1,57 +1,115 @@
+// src/estadistica/estadistica.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { subDays } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format } from 'date-fns';
 
 @Injectable()
 export class EstadisticasService {
   constructor(private prisma: PrismaService) {}
 
-  async obtenerEstadisticas(rango: string) {
-    const dias = rango === '30d' ? 30 : rango === '90d' ? 90 : 7;
-    const desde = subDays(new Date(), dias);
+  async getEstadisticas(query: any) {
+    const { rango, inicio, fin, categoria, marca } = query;
+    const idEmpresa = query.idEmpresa ? Number(query.idEmpresa) : undefined;
 
-    // Ventas por día
-    const ventasPorDia = await this.prisma.venta.groupBy({
-      by: ['fecha'],
-      where: { fecha: { gte: desde } },
-      _sum: { total: true },
-      orderBy: { fecha: 'asc' },
+    // 1. DEFINIR RANGO DE FECHAS
+    let fechaInicio = new Date();
+    let fechaFin = new Date();
+
+    if (inicio && fin) {
+      // Rango personalizado
+      fechaInicio = startOfDay(new Date(inicio));
+      fechaFin = endOfDay(new Date(fin));
+    } else {
+      // Rangos predefinidos
+      const mapDias: any = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 };
+      const dias = mapDias[rango] || 7;
+      fechaInicio = subDays(new Date(), dias);
+      fechaFin = new Date();
+    }
+
+    // 2. CONSTRUIR FILTROS (WHERE)
+    const whereVenta: any = {
+      fecha: { gte: fechaInicio, lte: fechaFin },
+      id_empresa: idEmpresa,
+    };
+
+    // Filtro profundo: Si hay categoria o marca, filtramos las ventas que tengan AL MENOS un producto con eso
+    if (categoria || marca) {
+      whereVenta.detalle_venta = {
+        some: {
+          producto: {
+            // Filtros dinámicos
+            ...(categoria && { categoria: { nombre: categoria } }),
+            ...(marca && { marca: { contains: marca } })
+          }
+        }
+      };
+    }
+
+    // 3. OBTENER VENTAS CRUDAS (Prisma no agrupa fácil por fecha truncada, lo hacemos en JS para ser DB-agnostic)
+    const ventasRaw = await this.prisma.venta.findMany({
+      where: whereVenta,
+      select: {
+        fecha: true,
+        total: true,
+        detalle_venta: {
+          include: { producto: true }
+        }
+      },
+      orderBy: { fecha: 'asc' }
     });
 
-    // Productos top
-    const productosTop = await this.prisma.detalle_venta.groupBy({
-      by: ['id_producto'],
-      _sum: { cantidad: true, subtotal: true },
-      orderBy: { _sum: { cantidad: 'desc' } },
-      take: 5,
+    // 4. AGRUPAR VENTAS POR FECHA (SOLUCIÓN AL GRÁFICO SEPARADO)
+    // Usamos un mapa para sumarizar: "2023-10-01" => $50.000
+    const ventasAgrupadas = new Map<string, number>();
+
+    ventasRaw.forEach(v => {
+      // Cortamos la fecha a YYYY-MM-DD para agrupar por día
+      // Ojo: Si el rango es '365d', podrías querer agrupar por mes (YYYY-MM). 
+      // Aquí lo dejo por día por defecto.
+      const fechaKey = v.fecha.toISOString().split('T')[0]; 
+      const actual = ventasAgrupadas.get(fechaKey) || 0;
+      ventasAgrupadas.set(fechaKey, actual + v.total);
     });
 
-    const productosConNombre = await Promise.all(
-      productosTop.map(async (p) => {
-        const prod = await this.prisma.producto.findUnique({
-          where: { id_producto: p.id_producto },
-          select: { nombre: true },
-        });
-        return {
-          nombre: prod?.nombre || 'Desconocido',
-          total_vendido: p._sum.cantidad,
-          ingreso: p._sum.subtotal,
-        };
-      }),
-    );
+    // Convertir Mapa a Array para el gráfico
+    const ventasChart = Array.from(ventasAgrupadas, ([fecha, total]) => ({ fecha, total }));
 
-    // Categorías más rentables
-    const categorias = await this.prisma.$queryRawUnsafe(`
-      SELECT c.nombre AS categoria, SUM(dv.subtotal) AS ingreso
-      FROM detalle_venta dv
-      JOIN producto p ON p.id_producto = dv.id_producto
-      JOIN categoria c ON c.id_categoria = p.id_categoria
-      JOIN venta v ON v.id_venta = dv.id_venta
-      WHERE v.fecha >= '${desde.toISOString().split('T')[0]}'
-      GROUP BY c.nombre
-      ORDER BY ingreso DESC
-    `);
+    // 5. TOP PRODUCTOS (Con filtros aplicados)
+    // Hay que recalcularlos manualmente de las ventas filtradas
+    const productoMap = new Map<string, any>();
 
-    return { ventas_por_dia: ventasPorDia, productos_top: productosConNombre, categorias };
+    ventasRaw.forEach(v => {
+      v.detalle_venta.forEach(d => {
+        // Aplicar filtro de marca/categoria al detalle también si es necesario
+        if (marca && !d.producto.marca?.includes(marca)) return;
+        // (La lógica de categoría ya se filtró en el WHERE principal, pero doble check no daña)
+        
+        const key = d.producto.nombre;
+        const actual = productoMap.get(key) || { nombre: key, cantidad: 0, total: 0 };
+        actual.cantidad += d.cantidad;
+        actual.total += d.subtotal;
+        productoMap.set(key, actual);
+      });
+    });
+
+    const topProductos = Array.from(productoMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+
+    // 6. OBTENER LISTAS PARA FILTROS (Marcas y Categorías disponibles)
+    const categoriasList = await this.prisma.categoria.findMany();
+    // Truco para sacar marcas únicas usando groupBy
+    const marcasRaw = await this.prisma.producto.groupBy({
+      by: ['marca'],
+      where: { id_empresa: idEmpresa, marca: { not: null } },
+    });
+
+    return {
+      ventas_chart: ventasChart,
+      top_productos: topProductos,
+      categorias: categoriasList,
+      marcas: marcasRaw.map(m => m.marca).filter(m => m !== '')
+    };
   }
 }

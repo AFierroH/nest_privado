@@ -49,17 +49,26 @@ model categoria {
 }
 
 model producto {
-  id_producto  Int      @id @default(autoincrement())
-  nombre       String
-  descripcion  String?
-  precio       Float
-  stock        Int
-  id_categoria Int
-  id_empresa   Int
-  categoria    categoria @relation(fields: [id_categoria], references: [id_categoria])
-  empresa      empresa   @relation(fields: [id_empresa], references: [id_empresa])
-  detalles     detalle_venta[]       // relación hacia detalle_venta
-  historial    historial_productos[]
+  id_producto    Int      @id @default(autoincrement())
+  nombre         String
+  descripcion    String?  // Ya lo tenías, pero lo dejamos explícito
+  precio         Float
+  stock          Int
+  
+  // --- NUEVOS CAMPOS ---
+  codigo_barra   String?  @unique // Único para que el escáner no se confunda
+  marca          String?
+  proveedor      String?
+  n_sellos       Int      @default(0) // Para los sellos ``ALTOS EN...'' (0, 1, 2, 3)
+  descuento_pct  Int      @default(0) // Porcentaje de descuento (ej: 10 para 10%)
+  // ---------------------
+
+  id_categoria   Int
+  id_empresa     Int
+  categoria      categoria @relation(fields: [id_categoria], references: [id_categoria])
+  empresa        empresa   @relation(fields: [id_empresa], references: [id_empresa])
+  detalles       detalle_venta[]
+  historial      historial_productos[]
 }
 
 model venta {
