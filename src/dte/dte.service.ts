@@ -19,10 +19,12 @@ export class DteService {
     });
 
     if (!venta) throw new Error('Venta no encontrada');
-
+    const { folio, cafArchivo } = folioManual > 0
+    ? { folio: folioManual, cafArchivo: 'manual.xml' }
+    : await this.obtenerSiguienteFolio(venta.empresa.id_empresa, 39);
     // RUTAS CERTIFICADOS (Asegúrate que sean correctas en tu servidor)
     const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 
-    const cafPath = path.join(process.cwd(), 'certificados', 'FoliosSII21289176395120251128225.xml'); 
+    const cafPath = path.join(process.cwd(), 'certificados', cafArchivo); 
 
     if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
         console.error("Faltan certificados");
@@ -43,20 +45,17 @@ export class DteService {
     const passwordCertificado = this.configService.get<string>('SIMPLEAPI_CERT_PASS');
     let apiKey = this.configService.get<string>('SIMPLEAPI_KEY');
 
-    // Usar el ID de venta como folio si no es manual
-    const folioFinal = folioManual > 0 ? folioManual : venta.id_venta;
-
     const jsonInput = {
         "Documento": {
             "Encabezado": {
                 "IdentificacionDTE": {
                     "TipoDTE": 39,
-                    "Folio": folioFinal, 
+                    "Folio": folio, 
                     "FechaEmision": new Date().toISOString().split('T')[0],
                     "IndicadorServicio": 3 // Boleta electrónica
                 },
                 "Emisor": {
-                    "Rut": "21289176-2", 
+                    "Rut": venta.empresa.rut.replace(/\./g, ''), 
                     "RazonSocialBoleta": "MiPOSra",
                     "GiroBoleta": "Servicios Informaticos",
                     "DireccionOrigen": venta.empresa.direccion || "Temuco Centro",
@@ -75,7 +74,7 @@ export class DteService {
             "Detalles": detallesDTE
         },
         "Certificado": {
-            "Rut": "21289176-2",
+            "Rut": venta.empresa.rut.replace(/\./g, ''),
             "Password": passwordCertificado
         }
     };
@@ -127,12 +126,12 @@ export class DteService {
             }
         }
 
-        return {
+            return {
             ok: true,
-            folio: folioFinal, 
-            timbre: timbreFinal, 
-            xml: xmlFinal 
-        };
+            folio,
+            timbre: timbreFinal,
+            xml: xmlFinal
+            };
 
     } catch (error) {
         console.error("❌ Error SimpleAPI:", error.message);
@@ -140,4 +139,60 @@ export class DteService {
         return { ok: false, error: error.message };
     }
   }
+  private async obtenerSiguienteFolio(empresaId: number, tipoDte: number) {
+  const caf = await this.prisma.folio_caf.findFirst({
+    where: {
+      empresa_id: empresaId,
+      tipo_dte: tipoDte,
+      activo: true
+    },
+    orderBy: { folio_desde: 'asc' }
+  });
+
+  if (!caf) {
+    throw new Error('No hay CAF activo para esta empresa');
+  }
+
+  const siguiente = caf.folio_actual + 1;
+
+  if (siguiente > caf.folio_hasta) {
+    // Desactivar CAF actual
+    await this.prisma.folio_caf.update({
+      where: { id: caf.id },
+      data: { activo: false }
+    });
+
+    // Activar el siguiente
+    const next = await this.prisma.folio_caf.findFirst({
+      where: {
+        empresa_id: empresaId,
+        tipo_dte: tipoDte,
+        activo: false,
+        folio_desde: { gt: caf.folio_hasta }
+      },
+      orderBy: { folio_desde: 'asc' }
+    });
+
+    if (!next) {
+      throw new Error('CAF agotado, no hay más folios');
+    }
+
+    await this.prisma.folio_caf.update({
+      where: { id: next.id },
+      data: { activo: true }
+    });
+
+    return this.obtenerSiguienteFolio(empresaId, tipoDte);
+  }
+
+  await this.prisma.folio_caf.update({
+    where: { id: caf.id },
+    data: { folio_actual: siguiente }
+  });
+
+  return {
+    folio: siguiente,
+    cafArchivo: caf.caf_archivo
+  };
+}
 }

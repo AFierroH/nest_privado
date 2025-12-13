@@ -121,3 +121,15 @@ model historial_productos {
   producto     producto @relation(fields: [id_producto], references: [id_producto])
   usuario      usuario  @relation(fields: [id_usuario], references: [id_usuario])
 }
+
+model folio_caf {
+  id           Int      @id @default(autoincrement())
+  empresa_id   Int
+  tipo_dte     Int
+  caf_archivo  String
+  folio_desde  Int
+  folio_hasta  Int
+  folio_actual Int
+  activo       Boolean  @default(true)
+  created_at   DateTime @default(now())
+}
