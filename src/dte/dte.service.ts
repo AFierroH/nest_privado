@@ -20,13 +20,13 @@ export class DteService {
     });
 
     if (!venta) throw new Error('Venta no encontrada');
-const { folio, cafArchivo } =
-  folioManual > 0
-    ? { folio: folioManual, cafArchivo: 'manual.xml' }
-    : await this.foliosService.obtenerSiguienteFolio(
-        venta.empresa.id_empresa,
-        39
-      )
+    const { folio, cafArchivo } =
+    folioManual > 0
+        ? { folio: folioManual, cafArchivo: 'manual.xml' }
+        : await this.foliosService.obtenerSiguienteFolio(
+            venta.empresa.id_empresa,
+            39
+        )
     
     // RUTAS CERTIFICADOS (Asegúrate que sean correctas en tu servidor)
     const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 

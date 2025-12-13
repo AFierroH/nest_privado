@@ -1,18 +1,29 @@
-import { Controller, Get, Param } from '@nestjs/common'
+import {
+  Controller,
+  Post,
+  Get,
+  Param,
+  UploadedFile,
+  UseInterceptors
+} from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
 import { FoliosService } from './folios.service'
 
 @Controller('folios')
 export class FoliosController {
   constructor(private readonly foliosService: FoliosService) {}
 
-  @Get('next/:empresaId/:tipoDte')
-  async next(
-    @Param('empresaId') empresaId: number,
-    @Param('tipoDte') tipoDte: number
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadCaf(
+    @UploadedFile() file: Express.Multer.File,
+    @Param('empresaId') empresaId?: number
   ) {
-    return this.foliosService.obtenerSiguienteFolio(
-      Number(empresaId),
-      Number(tipoDte)
-    )
+    return this.foliosService.procesarCafXml(file)
+  }
+
+  @Get()
+  async listar() {
+    return this.foliosService.listar()
   }
 }
