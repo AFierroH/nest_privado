@@ -12,9 +12,10 @@ import { EstadisticasModule } from './estadisticas/estadisticas.module';
 import { ImportModule } from './import/import.module';
 import { EmailModule } from './email/email.module';
 import { ConfigModule } from '@nestjs/config';
+import { FoliosModule } from './folios/folios.module';
 
 @Module({
-  imports: [PrismaModule, EmpresaModule, UsuarioModule, VentaModule, DteModule, ProductoModule, AuthModule, EstadisticasModule, ImportModule, EmailModule, ConfigModule.forRoot({ isGlobal: true })],
+  imports: [PrismaModule, EmpresaModule, UsuarioModule, VentaModule, DteModule, ProductoModule, AuthModule, EstadisticasModule, ImportModule, EmailModule, FoliosModule, ConfigModule.forRoot({ isGlobal: true })],
   controllers: [AppController],
   providers: [AppService], 
 })

@@ -5,10 +5,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
+import { FoliosService } from '../folios/folios.service'
 
 @Injectable()
 export class DteService {
-  constructor(private prisma: PrismaService, private configService: ConfigService) {}
+  constructor(private prisma: PrismaService, private configService: ConfigService, private foliosService: FoliosService) {}
   
   async emitirDteDesdeVenta(idVenta: number, casoPrueba: string = '', folioManual: number = 0) {
     console.log(`Iniciando emisión DTE Real ID: ${idVenta}`);
@@ -19,9 +20,14 @@ export class DteService {
     });
 
     if (!venta) throw new Error('Venta no encontrada');
-    const { folio, cafArchivo } = folioManual > 0
+const { folio, cafArchivo } =
+  folioManual > 0
     ? { folio: folioManual, cafArchivo: 'manual.xml' }
-    : await this.obtenerSiguienteFolio(venta.empresa.id_empresa, 39);
+    : await this.foliosService.obtenerSiguienteFolio(
+        venta.empresa.id_empresa,
+        39
+      )
+    
     // RUTAS CERTIFICADOS (Asegúrate que sean correctas en tu servidor)
     const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 
     const cafPath = path.join(process.cwd(), 'certificados', cafArchivo); 
