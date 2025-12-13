@@ -13,9 +13,13 @@ import { ImportModule } from './import/import.module';
 import { EmailModule } from './email/email.module';
 import { ConfigModule } from '@nestjs/config';
 import { FoliosModule } from './folios/folios.module';
-
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 @Module({
-  imports: [PrismaModule, EmpresaModule, UsuarioModule, VentaModule, DteModule, ProductoModule, AuthModule, EstadisticasModule, ImportModule, EmailModule, FoliosModule, ConfigModule.forRoot({ isGlobal: true })],
+  imports: [PrismaModule, ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'), // Ruta en el disco
+      serveRoot: '/uploads',                    // Ruta URL (miposra.site/uploads/...)
+    }), EmpresaModule, UsuarioModule, VentaModule, DteModule, ProductoModule, AuthModule, EstadisticasModule, ImportModule, EmailModule, FoliosModule, ConfigModule.forRoot({ isGlobal: true })],
   controllers: [AppController],
   providers: [AppService], 
 })

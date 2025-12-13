@@ -24,6 +24,7 @@
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/serve-static": "^5.0.4",
     "@prisma/client": "^6.16.2",
     "axios": "^1.13.2",
     "bwip-js": "^4.8.0",
