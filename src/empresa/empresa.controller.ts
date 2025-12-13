@@ -21,7 +21,7 @@ export class EmpresaController {
   async uploadLogo(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new Error('Archivo no recibido');
 
-    const logoUrl = `http://147.182.245.46:3000/uploads/${file.filename}`;
+    const logoUrl = `/uploads/${file.filename}`;
     
     return this.empresaService.updateLogo(id, logoUrl);
   }
