@@ -20,7 +20,7 @@ export class DteController {
       const resultado = await this.dteService.emitirDteDesdeVenta(
           idVenta, 
           caso, 
-          folioManual || 0 
+          Number(folioManual) || 0 
       );
 
       if (!resultado.ok) {
