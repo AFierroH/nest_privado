@@ -6,8 +6,6 @@ import { json, urlencoded } from 'express';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // 1. ESTO FALTA O SE BORRÓ:
-  app.setGlobalPrefix('api');
 
   app.enableCors({
     origin: '*', 
