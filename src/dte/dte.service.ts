@@ -5,12 +5,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
-import { FoliosService } from '../folios/folios.service'
+import { FoliosService } from '../folios/folios.service';
+import { Readable } from 'stream'; // <--- IMPORTANTE: Importar Readable
 
 @Injectable()
 export class DteService {
-  constructor(private prisma: PrismaService, private configService: ConfigService, private foliosService: FoliosService) {}
-  
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService,
+    private foliosService: FoliosService
+  ) {}
+
   async emitirDteDesdeVenta(idVenta: number, casoPrueba: string = '', folioManual: number = 0) {
     console.log(`Iniciando emisión DTE Real ID: ${idVenta}`);
 
@@ -20,30 +25,31 @@ export class DteService {
     });
 
     if (!venta) throw new Error('Venta no encontrada');
-    const { folio, cafArchivo } =
-    folioManual > 0
-        ? { folio: folioManual, cafArchivo: 'manual.xml' }
-        : await this.foliosService.obtenerSiguienteFolio(
-            venta.empresa.id_empresa,
-            39
-        )
-    
-    // RUTAS CERTIFICADOS (Asegúrate que sean correctas en tu servidor)
-    const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx'); 
-    const cafPath = path.join(process.cwd(), 'certificados', cafArchivo); 
 
-    if (!fs.existsSync(certPath) || !fs.existsSync(cafPath)) {
-        console.error("Faltan certificados");
-        throw new Error(`Faltan archivos certificados`);
+    // 1. Obtener Folio y CAF desde la BD (foliosService)
+    // OJO: folioManual lo ignoramos por ahora si usas el sistema automático
+    const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
+      venta.empresa.id_empresa,
+      39 // Boleta Electrónica
+    );
+
+    // 2. Ruta del Certificado Digital (PFX) - ESTE SÍ SIGUE EN DISCO
+    // Asegúrate de que el nombre del archivo coincida con lo que tienes en la carpeta certificados
+    const certPath = path.join(process.cwd(), 'certificados', '21289176-2_2025-10-20.pfx');
+
+    if (!fs.existsSync(certPath)) {
+        console.error("Falta certificado digital PFX");
+        throw new Error(`Falta archivo certificado PFX en: ${certPath}`);
     }
+    // Nota: El CAF ya no se chequea con fs.existsSync porque viene de la BD como string.
 
     const detallesDTE = venta.detalle_venta.map((d, i) => {
-        const nombreItem = (d as any).nombre || d.producto.nombre; 
+        const nombreItem = (d as any).nombre || d.producto.nombre;
         return {
             "NroLinDet": i + 1,
-            "Nombre": nombreItem.substring(0, 80), 
+            "Nombre": nombreItem.substring(0, 80),
             "Cantidad": Number(d.cantidad),
-            "Precio": Math.round(d.precio_unitario), 
+            "Precio": Math.round(d.precio_unitario),
             "MontoItem": Math.round(d.subtotal),
         };
     });
@@ -56,12 +62,12 @@ export class DteService {
             "Encabezado": {
                 "IdentificacionDTE": {
                     "TipoDTE": 39,
-                    "Folio": folio, 
+                    "Folio": folio,
                     "FechaEmision": new Date().toISOString().split('T')[0],
-                    "IndicadorServicio": 3 // Boleta electrónica
+                    "IndicadorServicio": 3
                 },
                 "Emisor": {
-                    "Rut": venta.empresa.rut.replace(/\./g, ''), 
+                    "Rut": venta.empresa.rut.replace(/\./g, ''),
                     "RazonSocialBoleta": "MiPOSra",
                     "GiroBoleta": "Servicios Informaticos",
                     "DireccionOrigen": venta.empresa.direccion || "Temuco Centro",
@@ -86,17 +92,22 @@ export class DteService {
     };
 
     const formData = new FormData();
+    
+    // Archivo 1: Certificado PFX (desde disco)
     formData.append('files', fs.createReadStream(certPath));
-    formData.append('files2', fs.createReadStream(cafPath));
+
+    // Archivo 2: CAF (desde memoria/string BD) <--- CAMBIO CLAVE
+    // Convertimos el string XML a un Stream para que FormData lo acepte como archivo
+    const cafStream = Readable.from([cafArchivo]); 
+    formData.append('files2', cafStream, { filename: 'caf.xml', contentType: 'text/xml' });
+
     formData.append('input', JSON.stringify(jsonInput));
 
     const urlApi = 'https://api.simpleapi.cl/api/v1/dte/generar';
 
     try {
-        console.log("📡 Enviando a SimpleAPI...");
+        console.log(`📡 Enviando a SimpleAPI (Folio: ${folio})...`);
         
-        // Quitamos headers manuales complejos, dejamos que axios y form-data lo manejen,
-        // Solo inyectamos el Authorization.
         const headers = {
             ...formData.getHeaders(),
             'Authorization': apiKey ? apiKey.trim() : ''
@@ -107,37 +118,33 @@ export class DteService {
         let xmlFinal = '';
         let timbreFinal = '';
         
-        // Manejo de respuesta
         if (typeof response.data === 'string') {
             xmlFinal = response.data;
         } else if (typeof response.data === 'object') {
             xmlFinal = response.data.XML || response.data.xml || JSON.stringify(response.data);
         }
 
-        // --- EXTRACCIÓN ROBUSTA DEL TED ---
-        // Buscamos explícitamente el bloque <TED>...</TED>
         const matchTED = xmlFinal.match(/<TED version="1.0">[\s\S]*?<\/TED>/);
         
         if (matchTED) {
             timbreFinal = matchTED[0];
             console.log("✅ Timbre (TED) extraído correctamente");
         } else {
-            // Intentar regex más flexible por si acaso
+             // Fallback
             const matchFlexible = xmlFinal.match(/<TED[\s\S]*?<\/TED>/);
             if (matchFlexible) {
                 timbreFinal = matchFlexible[0];
-                console.log("✅ Timbre (TED) extraído (Flexible)");
             } else {
                 console.warn("⚠️ No se encontró etiqueta TED en el XML recibido");
             }
         }
 
-            return {
+        return {
             ok: true,
             folio,
             timbre: timbreFinal,
             xml: xmlFinal
-            };
+        };
 
     } catch (error) {
         console.error("❌ Error SimpleAPI:", error.message);
@@ -145,60 +152,4 @@ export class DteService {
         return { ok: false, error: error.message };
     }
   }
-  private async obtenerSiguienteFolio(empresaId: number, tipoDte: number) {
-  const caf = await this.prisma.folio_caf.findFirst({
-    where: {
-      empresa_id: empresaId,
-      tipo_dte: tipoDte,
-      activo: true
-    },
-    orderBy: { folio_desde: 'asc' }
-  });
-
-  if (!caf) {
-    throw new Error('No hay CAF activo para esta empresa');
-  }
-
-  const siguiente = caf.folio_actual + 1;
-
-  if (siguiente > caf.folio_hasta) {
-    // Desactivar CAF actual
-    await this.prisma.folio_caf.update({
-      where: { id: caf.id },
-      data: { activo: false }
-    });
-
-    // Activar el siguiente
-    const next = await this.prisma.folio_caf.findFirst({
-      where: {
-        empresa_id: empresaId,
-        tipo_dte: tipoDte,
-        activo: false,
-        folio_desde: { gt: caf.folio_hasta }
-      },
-      orderBy: { folio_desde: 'asc' }
-    });
-
-    if (!next) {
-      throw new Error('CAF agotado, no hay más folios');
-    }
-
-    await this.prisma.folio_caf.update({
-      where: { id: next.id },
-      data: { activo: true }
-    });
-
-    return this.obtenerSiguienteFolio(empresaId, tipoDte);
-  }
-
-  await this.prisma.folio_caf.update({
-    where: { id: caf.id },
-    data: { folio_actual: siguiente }
-  });
-
-  return {
-    folio: siguiente,
-    cafArchivo: caf.caf_archivo
-  };
-}
 }

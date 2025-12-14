@@ -126,7 +126,7 @@ model folio_caf {
   id           Int      @id @default(autoincrement())
   empresa_id   Int
   tipo_dte     Int
-  caf_archivo  String
+  caf_archivo String @db.Text
   folio_desde  Int
   folio_hasta  Int
   folio_actual Int

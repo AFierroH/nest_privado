@@ -2,7 +2,6 @@ import {
   Controller,
   Post,
   Get,
-  Param,
   UploadedFile,
   UseInterceptors
 } from '@nestjs/common'
@@ -14,11 +13,8 @@ export class FoliosController {
   constructor(private readonly foliosService: FoliosService) {}
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadCaf(
-    @UploadedFile() file: Express.Multer.File,
-    @Param('empresaId') empresaId?: number
-  ) {
+  @UseInterceptors(FileInterceptor('file')) 
+  async uploadCaf(@UploadedFile() file: Express.Multer.File) {
     return this.foliosService.procesarCafXml(file)
   }
 
