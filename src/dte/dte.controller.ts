@@ -9,12 +9,18 @@ export class DteController {
   @Post('emitir-prueba')
   async emitirPrueba(@Body() body: any, @Res() res: Response) {
     try {
-      const { idVenta } = body; // Solo necesitamos el ID
+      // Solo necesitamos el ID, el servicio se encarga del resto (folio, caf, etc.)
+      const { idVenta } = body; 
+
+      if (!idVenta) {
+        return res.status(HttpStatus.BAD_REQUEST).json({ 
+            ok: false, 
+            error: 'Falta idVenta' 
+        });
+      }
 
       console.log('📥 Controller DTE recibió ID:', idVenta);
 
-      // CORRECCIÓN: Llamamos al servicio solo con el ID.
-      // El servicio ya sabe buscar el folio en la BD y armar el JSON.
       const resultado = await this.dteService.emitirDteDesdeVenta(idVenta);
 
       if (!resultado.ok) {
@@ -22,6 +28,7 @@ export class DteController {
       }
 
       return res.status(HttpStatus.OK).json(resultado);
+
     } catch (error) {
       console.error('Error en controller:', error);
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({

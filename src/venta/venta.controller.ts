@@ -3,10 +3,11 @@ import { VentaService } from './venta.service';
 
 @Controller('ventas')
 export class VentaController {
-  constructor(private readonly ventaService: VentaService) {}
+  constructor(private ventaService: VentaService) {}
 
-  @Post()
-  async crearVenta(@Body() payload: any) {
-    return this.ventaService.emitirVentaCompleta(payload);
+  @Post('emitir')
+  async emitirVenta(@Body() body: any) {
+    // body debe incluir: id_usuario, id_empresa, total, detalles, pagos?, usarImpresora?
+    return this.ventaService.emitirVentaCompleta(body);
   }
 }
