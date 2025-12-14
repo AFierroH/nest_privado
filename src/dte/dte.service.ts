@@ -82,7 +82,9 @@ export class DteService {
         );
 
         const data = response.data;
-        console.log(`✅ Respuesta PHP recibida. Timbre generado: ${!!data.ted}`);
+
+    console.log("📦 PAYLOAD ENVIADO AL PHP:", JSON.stringify(payload.documento.Encabezado, null, 2));
+    console.log("⚠️ RESPUESTA CRUDA PHP:", JSON.stringify(data, null, 2));
 
         return {
             ok: true,
