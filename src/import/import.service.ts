@@ -123,120 +123,117 @@ export class ImportService {
   }
 
 async applyMapping(body: any) {
-  const { uploadId, sourceTable, destTable, mapping, staticValues } = body;
-  const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
+    // 1. Recibimos empresaId del frontend
+    const { uploadId, sourceTable, destTable, mapping, staticValues, empresaId } = body;
+    const sqlFile = path.join(this.uploadsDir, `${uploadId}.sql`);
 
-  console.log('==============================');
-  console.log('applyMapping() llamado');
-  console.log('Body recibido:', JSON.stringify(body, null, 2));
-  console.log('Ruta SQL file:', sqlFile);
-  console.log('==============================');
-
-  try {
-    if (!fs.existsSync(sqlFile)) {
-      throw new Error(`Archivo SQL no encontrado: ${sqlFile}`);
-    }
+    if (!fs.existsSync(sqlFile)) throw new Error(`Archivo SQL no encontrado`);
 
     const content = fs.readFileSync(sqlFile, 'utf8');
-    console.log(`Tamaño del archivo SQL: ${content.length} bytes`);
-
     const dbName = process.env.DB_NAME || 'pos_sii_es';
+
+    // Obtener Tipos y Nulabilidad de la BD
     const typeResult = await this.prisma.$queryRawUnsafe(`
-      SELECT COLUMN_NAME, DATA_TYPE
+      SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
       FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${destTable}'
     `);
 
-    const destTypes = new Map<string, string>();
+    // Guardamos info de columnas para saber tipos y si existe id_empresa
+    const destInfo = new Map<string, { type: string, nullable: boolean }>();
     for (const row of typeResult as any[]) {
-      destTypes.set(row.COLUMN_NAME, row.DATA_TYPE.toLowerCase());
+      destInfo.set(row.COLUMN_NAME, { 
+        type: row.DATA_TYPE.toLowerCase(), 
+        nullable: row.IS_NULLABLE === 'YES' 
+      });
     }
 
-    const insertRegex = new RegExp(
-      `INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`,
-      'gi',
-    );
-
+    const insertRegex = new RegExp(`INSERT INTO\\s+\`?${sourceTable}\`?\\s*\\(([^)]+)\\)\\s*VALUES\\s*([\\s\\S]+?);`, 'gi');
     let match;
-    const rowsToInsert: any[] = [];
+    const cleanedRows: any[] = [];
+
     while ((match = insertRegex.exec(content))) {
       const cols = match[1].split(',').map(c => c.replace(/`/g, '').trim());
       const tuples = match[2].match(/\(([^)]+)\)/g) || [];
 
       for (const t of tuples) {
         const vals = this.parseSqlValues(t.substring(1, t.length - 1));
-        const row: any = {};
+        const rowObject: any = {};
+
         for (const destCol in mapping) {
           const src = mapping[destCol];
-          if (src === '__static') row[destCol] = staticValues?.[destCol] ?? null;
-          else if (src && cols.includes(src)) row[destCol] = vals[cols.indexOf(src)];
-        }
-        rowsToInsert.push(row);
-      }
-    }
+          if (!src || src === '' || src === '__skip') continue;
 
-    console.log(`Filas detectadas: ${rowsToInsert.length}`);
-    console.log('Primeras filas:', rowsToInsert.slice(0, 3));
+          let rawValue: any = null;
+          if (src === '__static') rawValue = staticValues?.[destCol];
+          else if (cols.includes(src)) rawValue = vals[cols.indexOf(src)];
 
-    if (rowsToInsert.length === 0) {
-      throw new Error('No se detectaron filas INSERT válidas en el archivo SQL');
-    }
+          const colInfo = destInfo.get(destCol);
+          const type = colInfo?.type || 'string';
+          
+          if (rawValue === 'NULL' || rawValue === undefined) rawValue = null;
+          if (typeof rawValue === 'string') rawValue = rawValue.trim();
 
-    const cleanedRows: any[] = [];
-    for (const row of rowsToInsert) {
-      const cleanedRow: any = {};
-      for (const destCol in row) {
-        let value = row[destCol];
-        const type = destTypes.get(destCol)?.toLowerCase() || ''; // 👈 FIX AQUÍ
-
-        if (value === null || value === undefined || value === '') {
-          cleanedRow[destCol] = null;
-          continue;
-        }
-
-        try {
-          if (/int/.test(type)) {
-            cleanedRow[destCol] = Number.isNaN(Number(value)) ? null : parseInt(value, 10);
-          } else if (/(decimal|float|double)/.test(type)) {
-            cleanedRow[destCol] = Number.isNaN(Number(value)) ? null : parseFloat(value);
-          } else if (/(datetime|timestamp|date)/.test(type)) {
-            const dateVal = new Date(value);
-            cleanedRow[destCol] = isNaN(dateVal.getTime()) ? null : dateVal;
-          } else if (/(bit|boolean)/.test(type)) {
-            cleanedRow[destCol] = value === '1' || value === 'true';
-          } else {
-            cleanedRow[destCol] = String(value);
+          if (rawValue === null || rawValue === '') {
+             if (colInfo?.nullable) {
+                 rowObject[destCol] = null;
+             } else {
+                 if (/int|float|double|decimal/.test(type)) rowObject[destCol] = 0;
+                 else if (/bool/.test(type)) rowObject[destCol] = false;
+                 else rowObject[destCol] = "";
+             }
+             continue; 
           }
-        } catch {
-          cleanedRow[destCol] = null;
+
+          try {
+            if (/int/.test(type)) {
+              const cleanNum = String(rawValue).replace(/[^0-9.-]/g, ''); 
+              rowObject[destCol] = parseInt(cleanNum, 10);
+            } else if (/(decimal|float|double)/.test(type)) {
+              const cleanNum = String(rawValue).replace(/[^0-9.-]/g, '');
+              rowObject[destCol] = parseFloat(cleanNum);
+            } else if (/(datetime|timestamp|date)/.test(type)) {
+              const d = new Date(rawValue);
+              rowObject[destCol] = isNaN(d.getTime()) ? new Date() : d;
+            } else if (/(bit|boolean|tinyint)/.test(type)) {
+              rowObject[destCol] = ['1', 'true', 'on', 'yes'].includes(String(rawValue).toLowerCase());
+            } else {
+              rowObject[destCol] = String(rawValue);
+            }
+          } catch (e) {
+            rowObject[destCol] = null;
+          }
+        }
+        
+        // 2. FORZADO AUTOMÁTICO DE EMPRESA (OPCIÓN 2)
+        // Si la tabla destino tiene columna 'id_empresa', le clavamos el ID de la sesión
+        if (destInfo.has('id_empresa') && empresaId) {
+            rowObject['id_empresa'] = Number(empresaId);
+        }
+
+        if (Object.keys(rowObject).length > 0) {
+            cleanedRows.push(rowObject);
         }
       }
-      cleanedRows.push(cleanedRow);
     }
 
     const modelName = destTable.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
-    const prismaModel = (this.prisma as any)[modelName];
+    const prismaModel = (this.prisma as any)[modelName] || (this.prisma as any)[destTable];
 
-    if (!prismaModel) {
-      console.error('Modelo Prisma no encontrado:', modelName);
-      console.log('Modelos disponibles:', Object.keys(this.prisma));
-      throw new Error(`Modelo Prisma no encontrado: ${modelName}`);
+    if (!prismaModel) throw new Error(`Modelo Prisma no encontrado: ${destTable}`);
+
+    const BATCH_SIZE = 500;
+    let insertedCount = 0;
+    for (let i = 0; i < cleanedRows.length; i += BATCH_SIZE) {
+        const batch = cleanedRows.slice(i, i + BATCH_SIZE);
+        const res = await prismaModel.createMany({
+            data: batch,
+            skipDuplicates: true,
+        });
+        insertedCount += res.count;
     }
 
-    console.log(`Modelo Prisma usado: ${modelName}`);
-
-    const created = await prismaModel.createMany({
-      data: cleanedRows,
-      skipDuplicates: true,
-    });
-
-    console.log(`createMany completado: ${created.count} filas insertadas`);
     fs.unlink(sqlFile, () => {});
-    return { inserted: created.count };
-  } catch (error: any) {
-    console.error('Error completo en applyMapping:');
-    console.error(error);
-    throw new Error(`Error en importación: ${error.message}`);
+    return { inserted: insertedCount };
   }
-}
 }
