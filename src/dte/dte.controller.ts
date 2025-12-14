@@ -1,6 +1,5 @@
 import { Controller, Post, Body, Res, HttpStatus } from '@nestjs/common';
 import { DteService } from './dte.service';
-// 👇 CAMBIO IMPORTANTE: Usar 'import type' para Response si solo se usa como tipo
 import type { Response } from 'express'; 
 
 @Controller('dte')
@@ -10,18 +9,13 @@ export class DteController {
   @Post('emitir-prueba')
   async emitirPrueba(@Body() body: any, @Res() res: Response) {
     try {
-      // 1. Extraemos los datos del body que viene del frontend
-      const { idVenta, caso, folioManual } = body; 
+      const { idVenta } = body; // Solo necesitamos el ID
 
-      console.log('📥 Controller recibió:', { idVenta, caso, folioManual });
+      console.log('📥 Controller DTE recibió ID:', idVenta);
 
-      // 2. Pasamos folioManual al servicio (Asegúrate que el 3er argumento sea folioManual)
-      // Si folioManual viene undefined, pasamos 0
-      const resultado = await this.dteService.emitirDteDesdeVenta(
-          idVenta, 
-          caso, 
-          Number(folioManual) || 0 
-      );
+      // CORRECCIÓN: Llamamos al servicio solo con el ID.
+      // El servicio ya sabe buscar el folio en la BD y armar el JSON.
+      const resultado = await this.dteService.emitirDteDesdeVenta(idVenta);
 
       if (!resultado.ok) {
         return res.status(HttpStatus.BAD_REQUEST).json(resultado);
