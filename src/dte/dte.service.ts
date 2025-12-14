@@ -5,21 +5,17 @@ import { FoliosService } from '../folios/folios.service';
 
 @Injectable()
 export class DteService {
-  // URL interna de Docker. 
-  // 'dte_api' es el nombre del servicio en docker-compose.yml
-  // Puerto 80 es el puerto interno del contenedor PHP.
-  private readonly dteUrl = 'http://dte_api:80'; 
+  // Apuntamos directo al archivo index.php para evitar errores 404 de Apache
+  private readonly dteUrl = 'http://dte_api:80/index.php'; 
 
   constructor(
     private prisma: PrismaService,
     private foliosService: FoliosService
   ) {}
 
-  // Quitamos parámetros innecesarios, solo necesitamos el ID de la venta
   async emitirDteDesdeVenta(idVenta: number) {
-    console.log(`🚀 Iniciando emisión DTE LOCAL (Microservicio Docker) ID Venta: ${idVenta}`);
+    console.log(`🚀 Iniciando emisión DTE LOCAL ID Venta: ${idVenta}`);
 
-    // 1. Buscar datos de la venta
     const venta = await this.prisma.venta.findUnique({
       where: { id_venta: idVenta },
       include: { empresa: true, detalle_venta: { include: { producto: true } } }
@@ -27,21 +23,19 @@ export class DteService {
 
     if (!venta) throw new Error('Venta no encontrada');
 
-    // 2. Obtener Folio Automático de tu BD
+    // 1. FUENTE DE LA VERDAD: Obtenemos el folio de NUESTRA base de datos
     const { folio } = await this.foliosService.obtenerSiguienteFolio(
       venta.empresa.id_empresa,
-      39 // Boleta
+      39 
     );
-    console.log(`🎫 Folio asignado: ${folio}`);
+    console.log(`🎫 Folio asignado (Oficial): ${folio}`);
 
-    // 3. Preparar el JSON para el Microservicio PHP
-    // (Esta estructura debe coincidir con lo que espera LibreDTE/Tu Mock)
     const payload = {
         "documento": {
             "Encabezado": {
                 "IdDoc": {
                     "TipoDTE": 39,
-                    "Folio": folio,
+                    "Folio": folio, // Enviamos el folio oficial
                     "FchEmis": new Date().toISOString().split('T')[0],
                     "IndServicio": 3
                 },
@@ -74,33 +68,29 @@ export class DteService {
     };
 
     try {
-        console.log(`📡 Enviando a contenedor http://dte_api:80...`);
+        console.log(`📡 Enviando a microservicio PHP...`);
         
-        // 4. LLAMADA AL MICROSERVICIO (Sin Auth, red interna segura)
-       const response = await axios.post(
-    `${this.dteUrl}/index.php/dte/documentos/emitir`, 
-    payload,
-    { headers: { 'Content-Type': 'application/json' } }
-);
+        // Enviamos a la ruta exacta
+        const response = await axios.post(
+            `${this.dteUrl}/dte/documentos/emitir`, 
+            payload,
+            { headers: { 'Content-Type': 'application/json' } }
+        );
 
-    const data = response.data;
-    
-    // LOG PARA DEPURAR (Míralo en la consola del servidor)
-    console.log(`✅ Respuesta PHP: Folio ${data.folio}, Timbre recibido: ${!!data.ted}`);
+        const data = response.data;
+        console.log(`✅ Respuesta PHP recibida. Timbre generado: ${!!data.ted}`);
 
-    return {
-        ok: true,
-        folio: data.folio,   // <--- ESTO ES IMPORTANTE
-        timbre: data.ted,    // <--- ESTO ES EL XML QUE BUSCAS
-        xml: data.xml
-    };
+        return {
+            ok: true,
+            folio: folio,        // <--- SEGURIDAD: Usamos EL NUESTRO, no data.folio
+            timbre: data.ted,    // El XML del timbre (<TED>...</TED>)
+            xml: data.xml
+        };
 
     } catch (error) {
         console.error("❌ Error DTE Docker:", error.message);
-        if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-             return { ok: false, error: "No se puede conectar al contenedor dte_api. ¿Está corriendo?" };
-        }
-        return { ok: false, error: error.message };
+        // Retornamos error pero con el folio que intentamos usar para registro
+        return { ok: false, error: error.message, folio: folio }; 
     }
   }
 }
