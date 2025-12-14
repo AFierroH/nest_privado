@@ -24,13 +24,17 @@ export class DteService {
     if (!venta) throw new Error('Venta no encontrada');
 
     // 1. FUENTE DE LA VERDAD: Obtenemos el folio de NUESTRA base de datos
-    const { folio } = await this.foliosService.obtenerSiguienteFolio(
+    const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
       venta.empresa.id_empresa,
       39 
     );
+    
+    // Verificamos que tengamos CAF
+    if (!cafArchivo) throw new Error("No se encontró archivo CAF activo para emitir");
     console.log(`🎫 Folio asignado (Oficial): ${folio}`);
 
     const payload = {
+        "caf": cafArchivo,
         "documento": {
             "Encabezado": {
                 "IdDoc": {
