@@ -78,22 +78,22 @@ export class DteService {
         
         // 4. LLAMADA AL MICROSERVICIO (Sin Auth, red interna segura)
         const response = await axios.post(
-            `${this.dteUrl}/dte/documentos/emitir`, 
-            payload,
-            { headers: { 'Content-Type': 'application/json' } }
-        );
+        `${this.dteUrl}/dte/documentos/emitir`, 
+        payload,
+        { headers: { 'Content-Type': 'application/json' } }
+    );
 
-        // 5. Procesar respuesta del Mock/LibreDTE
-        const data = response.data;
-        console.log("✅ Respuesta Microservicio:", data.mensaje);
+    const data = response.data;
+    
+    // LOG PARA DEPURAR (Míralo en la consola del servidor)
+    console.log(`✅ Respuesta PHP: Folio ${data.folio}, Timbre recibido: ${!!data.ted}`);
 
-        // Si usaste el código PHP Mock que te di, devuelve "ted" y "xml" directo
-        return {
-            ok: true,
-            folio,
-            timbre: data.ted, // El XML del timbre (<TED>...</TED>)
-            xml: data.xml     // El XML completo firmado
-        };
+    return {
+        ok: true,
+        folio: data.folio,   // <--- ESTO ES IMPORTANTE
+        timbre: data.ted,    // <--- ESTO ES EL XML QUE BUSCAS
+        xml: data.xml
+    };
 
     } catch (error) {
         console.error("❌ Error DTE Docker:", error.message);
