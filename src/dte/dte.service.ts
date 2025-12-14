@@ -77,11 +77,11 @@ export class DteService {
         console.log(`📡 Enviando a contenedor http://dte_api:80...`);
         
         // 4. LLAMADA AL MICROSERVICIO (Sin Auth, red interna segura)
-        const response = await axios.post(
-        `${this.dteUrl}/dte/documentos/emitir`, 
-        payload,
-        { headers: { 'Content-Type': 'application/json' } }
-    );
+       const response = await axios.post(
+    `${this.dteUrl}/index.php/dte/documentos/emitir`, 
+    payload,
+    { headers: { 'Content-Type': 'application/json' } }
+);
 
     const data = response.data;
     
