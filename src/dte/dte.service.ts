@@ -74,7 +74,6 @@ export class DteService {
     try {
         console.log(`📡 Enviando a microservicio PHP...`);
         
-        // Enviamos a la ruta exacta
         const response = await axios.post(
             `${this.dteUrl}/dte/documentos/emitir`, 
             payload,
