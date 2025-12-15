@@ -70,17 +70,22 @@ model producto {
   detalles       detalle_venta[]
   historial      historial_productos[]
 }
-
 model venta {
-  id_venta     Int            @id @default(autoincrement())
-  fecha        DateTime       @default(now())
-  total        Float
-  id_usuario   Int
-  id_empresa   Int
-  usuario      usuario        @relation(fields: [id_usuario], references: [id_usuario])
-  empresa      empresa        @relation(fields: [id_empresa], references: [id_empresa])
-  detalle_venta detalle_venta[]  // <-- renombrado para que el include sea igual
-  pagos        venta_pago[]
+  id_venta      Int      @id @default(autoincrement()) // <--- AQUÍ FALTABA ESTO
+  folio         Int?
+  xml_dte       String?  @db.LongText
+  estado_sii    String?  @default("PENDIENTE")
+  track_id_sii  String?
+  fecha_emision DateTime?
+  
+  fecha         DateTime       @default(now())
+  total         Float
+  id_usuario    Int
+  id_empresa    Int
+  usuario       usuario        @relation(fields: [id_usuario], references: [id_usuario])
+  empresa       empresa        @relation(fields: [id_empresa], references: [id_empresa])
+  detalle_venta detalle_venta[]  
+  pagos         venta_pago[]
 }
 
 model detalle_venta {
