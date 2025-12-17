@@ -51,15 +51,18 @@ export class VentaService {
       console.log('📡 Emitiendo DTE al SII...');
       dteResult = await this.dteService.emitirDteDesdeVenta(ventaDb.id_venta);
       
-      // Verificar estructura de respuesta
       if (dteResult && dteResult.ok) {
         console.log('✅ DTE emitido exitosamente');
         
-        // DteService retorna { ok, folio, ted, xml }
-        timbreXml = dteResult.ted || null; // El TED es el timbre
+        timbreXml = dteResult.ted || null;
         folioFinal = dteResult.folio || ventaDb.id_venta;
 
-    // AGREGA ESTO PARA VER EL TED EN LA CONSOLA:
+        // --- AGREGA ESTO: Actualiza la variable ventaDb para que el frontend lo vea ---
+        ventaDb.folio = folioFinal;
+        ventaDb.estado_sii = 'EMITIDO'; // O el estado que uses
+        ventaDb.xml_dte = 'XML_GENERADO'; // Opcional, para no enviar todo el texto
+        // -----------------------------------------------------------------------------
+
         console.log('📜 TED (PDF417) RECIBIDO:', dteResult.ted); 
         console.log('🔢 FOLIO RECIBIDO:', dteResult.folio);
       } else {
@@ -68,15 +71,14 @@ export class VentaService {
       
     } catch (error) {
       console.error('❌ Excepción al emitir DTE:', error.message);
-      // No lanzamos error - la venta ya está guardada
     }
 
-    // C. Retornamos respuesta consistente al frontend
+    // C. Retornamos respuesta
     return { 
-      venta: ventaDb,
-      folio: folioFinal,          // Folio oficial o ID de venta
-      timbre: timbreXml,          // XML del <TED> para imprimir
-      xml: dteResult?.xml || null // XML completo (opcional)
+      venta: ventaDb,         // ¡Ahora sí llevará el folio!
+      folio: folioFinal,
+      timbre: timbreXml,      
+      xml: dteResult?.xml || null 
     };
   }
 
