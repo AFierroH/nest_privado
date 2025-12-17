@@ -5,13 +5,12 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 model empresa {
-  id_empresa   Int       @id @default(autoincrement())
+  id_empresa   Int         @id @default(autoincrement())
   nombre       String
-  rut          String    @unique
+  rut          String      @unique
   direccion    String?
   telefono     String?
   email        String?
@@ -21,6 +20,7 @@ model empresa {
   usuarios     usuario[]
   productos    producto[]
   ventas       venta[]
+  folios       folio_caf[] // ⚠️ ESTA LÍNEA FALTABA
 }
 
 enum Rol {
@@ -51,18 +51,14 @@ model categoria {
 model producto {
   id_producto    Int      @id @default(autoincrement())
   nombre         String
-  descripcion    String?  // Ya lo tenías, pero lo dejamos explícito
+  descripcion    String?
   precio         Float
   stock          Int
-  
-  // --- NUEVOS CAMPOS ---
-  codigo_barra   String?  @unique // Único para que el escáner no se confunda
+  codigo_barra   String?  @unique
   marca          String?
   proveedor      String?
-  n_sellos       Int      @default(0) // Para los sellos ``ALTOS EN...'' (0, 1, 2, 3)
-  descuento_pct  Int      @default(0) // Porcentaje de descuento (ej: 10 para 10%)
-  // ---------------------
-
+  n_sellos       Int      @default(0)
+  descuento_pct  Int      @default(0)
   id_categoria   Int
   id_empresa     Int
   categoria      categoria @relation(fields: [id_categoria], references: [id_categoria])
@@ -70,15 +66,15 @@ model producto {
   detalles       detalle_venta[]
   historial      historial_productos[]
 }
+
 model venta {
-  id_venta      Int      @id @default(autoincrement()) // <--- AQUÍ FALTABA ESTO
+  id_venta      Int      @id @default(autoincrement())
   folio         Int?
   xml_dte       String?  @db.LongText
   estado_sii    String?  @default("PENDIENTE")
   track_id_sii  String?
   fecha_emision DateTime?
-  
-  fecha         DateTime       @default(now())
+  fecha         DateTime @default(now())
   total         Float
   id_usuario    Int
   id_empresa    Int
@@ -131,10 +127,15 @@ model folio_caf {
   id           Int      @id @default(autoincrement())
   empresa_id   Int
   tipo_dte     Int
-  caf_archivo String @db.Text
+  caf_archivo  String   @db.Text
   folio_desde  Int
   folio_hasta  Int
   folio_actual Int
   activo       Boolean  @default(true)
   created_at   DateTime @default(now())
+  
+  // ⚠️ ESTA RELACIÓN FALTABA
+  empresa      empresa  @relation(fields: [empresa_id], references: [id_empresa])
+  
+  @@index([empresa_id, tipo_dte, activo])
 }
