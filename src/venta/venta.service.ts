@@ -58,7 +58,10 @@ export class VentaService {
         // DteService retorna { ok, folio, ted, xml }
         timbreXml = dteResult.ted || null; // El TED es el timbre
         folioFinal = dteResult.folio || ventaDb.id_venta;
-        
+
+    // AGREGA ESTO PARA VER EL TED EN LA CONSOLA:
+        console.log('📜 TED (PDF417) RECIBIDO:', dteResult.ted); 
+        console.log('🔢 FOLIO RECIBIDO:', dteResult.folio);
       } else {
         console.warn('⚠️ DTE falló:', dteResult?.error || 'Error desconocido');
       }
