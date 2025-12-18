@@ -7,6 +7,31 @@ export class FoliosService {
   constructor(private prisma: PrismaService) {}
 
   /**
+   * Limpia el XML del CAF para asegurar formato correcto
+   */
+  private limpiarXmlCaf(xml: string): string {
+    let limpio = xml;
+    
+    // 1. Si tiene \n como string literal (no salto de línea real), reemplazarlos
+    if (limpio.includes('\\n')) {
+      limpio = limpio.replace(/\\n/g, '\n');
+    }
+    
+    // 2. Normalizar saltos de línea (convertir \r\n a \n)
+    limpio = limpio.replace(/\r\n/g, '\n');
+    
+    // 3. Eliminar espacios en blanco al inicio/fin
+    limpio = limpio.trim();
+    
+    // 4. Asegurar que empieza con <?xml o <AUTORIZACION>
+    if (!limpio.startsWith('<?xml') && !limpio.startsWith('<AUTORIZACION')) {
+      console.warn('CAF no empieza con etiqueta XML esperada');
+    }
+    
+    return limpio;
+  }
+
+  /**
    * Procesa y guarda un archivo CAF XML
    */
   async procesarCafXml(file: Express.Multer.File, empresaId: number) {
@@ -14,13 +39,16 @@ export class FoliosService {
       throw new BadRequestException('Archivo CAF no recibido')
     }
 
-    const xml = file.buffer.toString('utf-8')
+    const xmlOriginal = file.buffer.toString('utf-8')
+    const xmlLimpio = this.limpiarXmlCaf(xmlOriginal)
+    
     console.log(`Procesando CAF para empresa ${empresaId}...`)
+    console.log(`Tamaño XML: ${xmlLimpio.length} chars`)
 
     const parser = new xml2js.Parser({ explicitArray: false })
     
     try {
-      const data = await parser.parseStringPromise(xml)
+      const data = await parser.parseStringPromise(xmlLimpio)
       const caf = data.AUTORIZACION
 
       if (!caf || !caf.CAF || !caf.CAF.DA) {
@@ -32,12 +60,12 @@ export class FoliosService {
       const folioHasta = Number(caf.CAF.DA.RNG.H)
       const rutEmisor = caf.CAF.DA.RE
 
-      console.log(`  CAF Info:`)
+      console.log(`   CAF Info:`)
       console.log(`   - Tipo DTE: ${tipoDte}`)
       console.log(`   - Folios: ${folioDesde} - ${folioHasta}`)
       console.log(`   - RUT Emisor: ${rutEmisor}`)
 
-      // Verificar que la empresa existe
+      // Verificar empresa
       const empresa = await this.prisma.empresa.findUnique({
         where: { id_empresa: empresaId }
       })
@@ -46,13 +74,12 @@ export class FoliosService {
         throw new BadRequestException(`Empresa con ID ${empresaId} no encontrada`)
       }
 
-      // ADVERTENCIA: Verificar que el RUT coincida
+      // Verificar RUT
       if (empresa.rut !== rutEmisor) {
-        console.warn(`ADVERTENCIA: RUT del CAF (${rutEmisor}) no coincide con RUT de la empresa (${empresa.rut})`)
-        // No bloqueamos, pero advertimos
+        console.warn(`ADVERTENCIA: RUT del CAF (${rutEmisor}) ≠ RUT empresa (${empresa.rut})`)
       }
 
-      // Desactivar CAFs anteriores del mismo tipo
+      // Desactivar CAFs anteriores
       await this.prisma.folio_caf.updateMany({
         where: {
           empresa_id: empresaId,
@@ -64,15 +91,15 @@ export class FoliosService {
 
       console.log(`CAFs anteriores desactivados`)
 
-      // Crear nuevo CAF
+      // Guardar el XML LIMPIO
       const nuevo = await this.prisma.folio_caf.create({
         data: {
           empresa_id: empresaId,
           tipo_dte: tipoDte,
           folio_desde: folioDesde,
           folio_hasta: folioHasta,
-          folio_actual: folioDesde - 1, // Empieza en -1 para que el primero sea folioDesde
-          caf_archivo: xml,
+          folio_actual: folioDesde - 1,
+          caf_archivo: xmlLimpio, 
           activo: true
         }
       })
@@ -95,9 +122,6 @@ export class FoliosService {
     }
   }
 
-  /**
-   * Listar todos los CAFs
-   */
   async listar() {
     return this.prisma.folio_caf.findMany({
       include: { empresa: { select: { nombre: true, rut: true } } },
@@ -106,7 +130,7 @@ export class FoliosService {
   }
 
   /**
-   * Obtener siguiente folio disponible y su CAF
+   * Obtener siguiente folio y CAF LIMPIO
    */
   async obtenerSiguienteFolio(
     empresaId: number,
@@ -138,10 +162,10 @@ export class FoliosService {
         data: { activo: false }
       })
 
-      throw new Error(`CAF agotado. Último folio: ${caf.folio_hasta}. Carga un nuevo CAF.`)
+      throw new Error(`CAF agotado. Último folio: ${caf.folio_hasta}`)
     }
 
-    // Incrementar folio_actual
+    // Incrementar folio
     await this.prisma.folio_caf.update({
       where: { id: caf.id },
       data: { folio_actual: siguiente }
@@ -149,9 +173,12 @@ export class FoliosService {
 
     console.log(`Folio ${siguiente} asignado`)
 
+    // Retornar CAF limpio
+    const cafLimpio = this.limpiarXmlCaf(caf.caf_archivo)
+
     return {
       folio: siguiente,
-      cafArchivo: caf.caf_archivo
+      cafArchivo: cafLimpio
     }
   }
 }

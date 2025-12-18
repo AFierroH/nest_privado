@@ -14,12 +14,11 @@ export class DteService {
     private foliosService: FoliosService
   ) {}
 
-
   async emitirDteDesdeVenta(idVenta: number) {
     console.log(`[DTE] Iniciando emisión para Venta ID: ${idVenta}`);
 
     try {
-      // 1. OBTENER DATOS (Igual que antes)
+      // 1. OBTENER VENTA
       const venta = await this.prisma.venta.findUnique({
         where: { id_venta: idVenta },
         include: { 
@@ -28,9 +27,12 @@ export class DteService {
         }
       });
 
-      if (!venta) throw new Error(`Venta ${idVenta} no encontrada en BD`);
+      if (!venta) throw new Error(`Venta ${idVenta} no encontrada`);
 
-const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
+      console.log(`Venta encontrada - Empresa: ${venta.empresa.rut}`);
+
+      // 2. OBTENER FOLIO Y CAF (ya viene limpio desde foliosService)
+      const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
         venta.empresa.id_empresa,
         39
       );
@@ -39,19 +41,13 @@ const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
         throw new Error("No hay archivo CAF disponible");
       }
 
-      let cafLimpio = cafArchivo;
-      
-      if (cafLimpio.includes('\\n')) {
-          cafLimpio = cafLimpio.replace(/\\n/g, ''); 
-      }
-      
-      cafLimpio = cafLimpio.trim();
-      
       console.log(`Folio asignado: ${folio}`);
+      console.log(`CAF length: ${cafArchivo.length} chars`);
+      console.log(`CAF preview (primeros 100): ${cafArchivo.substring(0, 100)}`);
 
-      // 3. PREPARAR PAYLOAD PARA LIBREDTE
+      // 3. PREPARAR PAYLOAD
       const payload = {
-        caf: cafLimpio,
+        caf: cafArchivo, // Ya viene limpio
         documento: {
           Encabezado: {
             IdDoc: {
@@ -88,51 +84,90 @@ const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
         }
       };
 
+      console.log('Datos del payload:');
+      console.log(`   - RUT Emisor: ${payload.documento.Encabezado.Emisor.RUTEmisor}`);
+      console.log(`   - Folio: ${payload.documento.Encabezado.IdDoc.Folio}`);
+      console.log(`   - Total: ${payload.documento.Encabezado.Totales.MntTotal}`);
 
-      console.log(`Enviando a LibreDTE...`);
-
+      // 4. ENVIAR A LIBREDTE
+      console.log(`Enviando a LibreDTE (${this.dteUrl})...`);
+      
       const response = await axios.post(
         `${this.dteUrl}/dte/documentos/emitir`, 
         payload,
-        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+        { 
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000
+        }
       );
 
       const data = response.data;
       
+      console.log(`Respuesta LibreDTE:`, {
+        estado: data.estado,
+        mensaje: data.mensaje,
+        tiene_xml: !!data.xml,
+        tiene_ted: !!data.ted,
+        ted_preview: data.ted ? data.ted.substring(0, 100) : 'N/A'
+      });
+
+      // 5. VALIDAR RESPUESTA
       if (!data.xml || !data.ted) {
-        throw new Error("El microservicio no generó XML o TED correctamente");
+        throw new Error("LibreDTE no generó XML o TED");
       }
 
+      // 6. VERIFICAR QUE NO SEA FAKE
+      if (data.ted.includes('Fake-Code') || data.ted.includes('fake')) {
+        console.error('   TED es FAKE. Posibles causas:');
+        console.error('   1. RUT del CAF no coincide con RUT Emisor');
+        console.error('   2. CAF mal formado o corrupto');
+        console.error('   3. Certificado PFX incorrecto');
+        throw new Error('TED generado es falso (Fake-Code). Verifica CAF y certificado.');
+      }
+
+      console.log('TED válido recibido');
+
+      // 7. GUARDAR XML
       const uploadDir = path.join(process.cwd(), 'uploads', 'xml_emitidos');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
       
       const filePath = path.join(uploadDir, `T39_F${folio}.xml`);
       fs.writeFileSync(filePath, data.xml, { encoding: 'utf8' });
+      
+      console.log(`XML guardado: ${filePath}`);
 
-
+      // 8. ACTUALIZAR BD
       await this.prisma.venta.update({
         where: { id_venta: idVenta },
         data: {
           folio: folio,
           xml_dte: data.xml,
-          estado_sii: 'PENDIENTE',
+          estado_sii: 'EMITIDO', // Cambiar a EMITIDO si es exitoso
           fecha_emision: new Date()
         }
       });
 
-      console.log(`Venta finalizada. Folio: ${folio}`);
+      console.log(`Venta actualizada con folio ${folio}`);
 
-      // 9. RETORNAR SOLO LOS DATOS
+      // 9. RETORNAR
       return {
         ok: true,
         folio: folio,
-        ted: data.ted,      // El frontend usará esto para generar el código
-        xml: data.xml,      // El XML completo
-        pdf417Base64: null  // Explícito que no hay imagen
+        ted: data.ted,
+        xml: data.xml,
+        pdf417Base64: null // Por ahora null, luego lo generamos
       };
 
     } catch (error) {
       console.error(`[DTE] Error:`, error.message);
+      
+      if (axios.isAxiosError(error)) {
+        console.error("HTTP Status:", error.response?.status);
+        console.error("Response:", JSON.stringify(error.response?.data));
+      }
+
       return { 
         ok: false, 
         error: error.message || "Error desconocido",
