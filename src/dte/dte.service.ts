@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma.service';
 import { FoliosService } from '../folios/folios.service';
 import * as fs from 'fs';
 import * as path from 'path';
-// BORRAR ESTO: import * as bwipjs from 'bwip-js';  <-- YA NO SE NECESITA
 
 @Injectable()
 export class DteService {
@@ -15,7 +14,6 @@ export class DteService {
     private foliosService: FoliosService
   ) {}
 
-  // BORRAR TODA LA FUNCIÓN: private async generarPdf417Imagen(...) { ... }
 
   async emitirDteDesdeVenta(idVenta: number) {
     console.log(`[DTE] Iniciando emisión para Venta ID: ${idVenta}`);
@@ -32,20 +30,67 @@ export class DteService {
 
       if (!venta) throw new Error(`Venta ${idVenta} no encontrada en BD`);
 
-      // 2. OBTENER FOLIO (Igual que antes)
-      const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
+const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
         venta.empresa.id_empresa,
         39
       );
       
-      // 3. PREPARAR PAYLOAD (Igual que antes)
+      if (!cafArchivo) {
+        throw new Error("No hay archivo CAF disponible");
+      }
+
+      let cafLimpio = cafArchivo;
+      
+      if (cafLimpio.includes('\\n')) {
+          cafLimpio = cafLimpio.replace(/\\n/g, ''); 
+      }
+      
+      cafLimpio = cafLimpio.trim();
+      
+      console.log(`Folio asignado: ${folio}`);
+
+      // 3. PREPARAR PAYLOAD PARA LIBREDTE
       const payload = {
-          // ... (tu código del payload se mantiene igual)
+        caf: cafLimpio,
+        documento: {
+          Encabezado: {
+            IdDoc: {
+              TipoDTE: 39,
+              Folio: folio,
+              FchEmis: new Date().toISOString().split('T')[0],
+              IndServicio: 3
+            },
+            Emisor: {
+              RUTEmisor: venta.empresa.rut,
+              RznSoc: venta.empresa.nombre || "MiPOSra",
+              GiroEmis: "Ventas",
+              DirOrigen: venta.empresa.direccion || "Sin Direccion",
+              CmnaOrigen: "Temuco"
+            },
+            Receptor: {
+              RUTRecep: "66666666-6",
+              RznSocRecep: "Publico General",
+              GiroRecep: "Particular",
+              DirRecep: "S/D",
+              CmnaRecep: "Temuco"
+            },
+            Totales: {
+              MntTotal: Math.round(venta.total)
+            }
+          },
+          Detalle: venta.detalle_venta.map((d, i) => ({
+            NroLinDet: i + 1,
+            NmbItem: ((d as any).nombre || d.producto.nombre).substring(0, 80),
+            QtyItem: Number(d.cantidad),
+            PrcItem: Math.round(d.precio_unitario),
+            MontoItem: Math.round(d.subtotal)
+          }))
+        }
       };
+
 
       console.log(`Enviando a LibreDTE...`);
 
-      // 4. LLAMADA AL MICROSERVICIO
       const response = await axios.post(
         `${this.dteUrl}/dte/documentos/emitir`, 
         payload,
@@ -54,21 +99,17 @@ export class DteService {
 
       const data = response.data;
       
-      // 5. VALIDAR RESPUESTA
       if (!data.xml || !data.ted) {
         throw new Error("El microservicio no generó XML o TED correctamente");
       }
 
-      // 6. GUARDAR XML EN DISCO (Esto sí déjalo, es un buen respaldo)
       const uploadDir = path.join(process.cwd(), 'uploads', 'xml_emitidos');
       if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
       
       const filePath = path.join(uploadDir, `T39_F${folio}.xml`);
       fs.writeFileSync(filePath, data.xml, { encoding: 'utf8' });
 
-      // 7. (PASO ELIMINADO) YA NO GENERAMOS IMAGEN AQUÍ
 
-      // 8. ACTUALIZAR BASE DE DATOS
       await this.prisma.venta.update({
         where: { id_venta: idVenta },
         data: {
