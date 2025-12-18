@@ -55,7 +55,7 @@ export class VentaService {
         
         folioFinal = dteResult.folio || ventaDb.id_venta;
         timbreXml = dteResult.ted || null;
-        pdf417Base64 = dteResult.pdf417Base64 || null; // Imagen del backend
+        pdf417Base64 = dteResult.pdf417Base64 || null; 
         
         console.log(`Folio: ${folioFinal}`);
         console.log(`TED: ${timbreXml ? 'SÍ' : 'NO'}`);
@@ -69,13 +69,12 @@ export class VentaService {
       console.error('Error en emisión DTE:', error.message);
     }
 
-    // C. Retornar respuesta completa al frontend
     return { 
       venta: ventaDb,
       folio: folioFinal,
-      timbre: timbreXml,              // XML del TED
+      timbre: timbreXml,              
       ticket: {
-        pdf417Base64: pdf417Base64,   // Imagen PNG base64 (si se generó)
+        pdf417Base64: pdf417Base64,   
         ok: !!pdf417Base64
       },
       xml: dteResult?.xml || null

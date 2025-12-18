@@ -16,29 +16,37 @@ export class DteService {
   ) {}
 
   /**
-   * Genera imagen PNG del PDF417 sin modificar (para mantener validez del código)
+   * Genera imagen PNG del PDF417 sin modificar
    */
-  private async generarPdf417Imagen(tedXml: string): Promise<string | null> {
+    private async generarPdf417Imagen(tedXml: string): Promise<string | null> {
     try {
-      const cleanData = tedXml.trim().replace(/\s+/g, ' ');
+      
+      const dataToEncode = tedXml.trim(); 
+
+      console.log('--- DEBUG TED START ---');
+      console.log(dataToEncode); 
+      console.log('--- DEBUG TED END ---');
 
       console.log('Generando imagen PDF417...');
 
       const pngBuffer = await bwipjs.toBuffer({
         bcid: 'pdf417',
-        text: cleanData,
-        // @ts-ignore - eclevel existe pero no está en los tipos de @types/bwip-js
-        eclevel: 5,
-        rowheight: 8,
-        scale: 3,
+        text: dataToEncode,
+        eclevel: 5,       // Nivel SII correcto
+        columns: 10,      // Fijar ancho relativo para que no salga muy ancho
+        rowheight: 8,     // Altura de cada fila
+        scale: 3,         // Escala general
         includetext: false,
-        paddingwidth: 8,
-        paddingheight: 8,
+        paddingwidth: 0,  
+        paddingheight: 0,
       } as any);
 
       if (!pngBuffer) {
         throw new Error('No se generó buffer de imagen');
       }
+      
+      // Opcional: Aquí podrías usar la librería 'sharp' o 'jimp' para redimensionar 
+      // la altura a múltiplo de 8, pero tu solución en Frontend (Canvas) es suficiente.
 
       const base64 = (pngBuffer as Buffer).toString('base64');
       console.log(`PDF417 generado (${(pngBuffer as Buffer).length} bytes)`);
@@ -178,9 +186,9 @@ export class DteService {
       return {
         ok: true,
         folio: folio,
-        ted: data.ted,              // XML del TED (para validación)
-        xml: data.xml,              // XML completo
-        pdf417Base64: pdf417Base64  // Imagen PNG base64 (para imprimir)
+        ted: data.ted,              
+        xml: data.xml,              
+        pdf417Base64: pdf417Base64  
       };
 
     } catch (error) {
