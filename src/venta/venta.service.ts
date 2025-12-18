@@ -6,7 +6,7 @@ import { DteService } from '../dte/dte.service';
 export class VentaService {
   constructor(
     private prisma: PrismaService,
-    private dteService: DteService 
+    private dteService: DteService
   ) {}
 
   async crearVenta(payload: any) {
@@ -36,49 +36,49 @@ export class VentaService {
   }
 
   async emitirVentaCompleta(payload: any) {
-    console.log('📝 Iniciando emisión de venta completa...');
-    
-    // A. Guardamos en BD primero (SIEMPRE guardamos la venta)
-    const ventaDb = await this.crearVenta(payload);
-    console.log(`✅ Venta guardada en BD con ID: ${ventaDb.id_venta}`);
+    console.log('Iniciando emisión de venta completa...');
 
-    // B. Intentamos emitir DTE
+    const ventaDb = await this.crearVenta(payload);
+    console.log(`Venta guardada con ID: ${ventaDb.id_venta}`);
+
     let dteResult: any = null;
-    let timbreXml = null;
-    let folioFinal = ventaDb.id_venta; // Por defecto usamos el ID de venta
+    let folioFinal = ventaDb.id_venta;
+    let timbreXml: string | null = null;
+    let pdf417Base64: string | null = null;
     
     try {
-      console.log('📡 Emitiendo DTE al SII...');
+      console.log('Emitiendo DTE al SII...');
       dteResult = await this.dteService.emitirDteDesdeVenta(ventaDb.id_venta);
       
       if (dteResult && dteResult.ok) {
-        console.log('✅ DTE emitido exitosamente');
+        console.log('DTE emitido exitosamente');
         
-        timbreXml = dteResult.ted || null;
         folioFinal = dteResult.folio || ventaDb.id_venta;
-
-        // --- AGREGA ESTO: Actualiza la variable ventaDb para que el frontend lo vea ---
-        ventaDb.folio = folioFinal;
-        ventaDb.estado_sii = 'EMITIDO'; // O el estado que uses
-        ventaDb.xml_dte = 'XML_GENERADO'; // Opcional, para no enviar todo el texto
-        // -----------------------------------------------------------------------------
-
-        console.log('📜 TED (PDF417) RECIBIDO:', dteResult.ted); 
-        console.log('🔢 FOLIO RECIBIDO:', dteResult.folio);
+        timbreXml = dteResult.ted || null;
+        pdf417Base64 = dteResult.pdf417Base64 || null; // Imagen del backend
+        
+        console.log(`Folio: ${folioFinal}`);
+        console.log(`TED: ${timbreXml ? 'SÍ' : 'NO'}`);
+        console.log(`PDF417: ${pdf417Base64 ? 'SÍ' : 'NO'}`);
+        
       } else {
-        console.warn('⚠️ DTE falló:', dteResult?.error || 'Error desconocido');
+        console.warn('DTE falló:', dteResult?.error || 'Error desconocido');
       }
       
     } catch (error) {
-      console.error('❌ Excepción al emitir DTE:', error.message);
+      console.error('Error en emisión DTE:', error.message);
     }
 
-    // C. Retornamos respuesta
+    // C. Retornar respuesta completa al frontend
     return { 
-      venta: ventaDb,         // ¡Ahora sí llevará el folio!
+      venta: ventaDb,
       folio: folioFinal,
-      timbre: timbreXml,      
-      xml: dteResult?.xml || null 
+      timbre: timbreXml,              // XML del TED
+      ticket: {
+        pdf417Base64: pdf417Base64,   // Imagen PNG base64 (si se generó)
+        ok: !!pdf417Base64
+      },
+      xml: dteResult?.xml || null
     };
   }
 

@@ -15,7 +15,7 @@ export class FoliosService {
     }
 
     const xml = file.buffer.toString('utf-8')
-    console.log(`📄 Procesando CAF para empresa ${empresaId}...`)
+    console.log(`Procesando CAF para empresa ${empresaId}...`)
 
     const parser = new xml2js.Parser({ explicitArray: false })
     
@@ -32,7 +32,7 @@ export class FoliosService {
       const folioHasta = Number(caf.CAF.DA.RNG.H)
       const rutEmisor = caf.CAF.DA.RE
 
-      console.log(`📋 CAF Info:`)
+      console.log(`  CAF Info:`)
       console.log(`   - Tipo DTE: ${tipoDte}`)
       console.log(`   - Folios: ${folioDesde} - ${folioHasta}`)
       console.log(`   - RUT Emisor: ${rutEmisor}`)
@@ -48,7 +48,7 @@ export class FoliosService {
 
       // ADVERTENCIA: Verificar que el RUT coincida
       if (empresa.rut !== rutEmisor) {
-        console.warn(`⚠️ ADVERTENCIA: RUT del CAF (${rutEmisor}) no coincide con RUT de la empresa (${empresa.rut})`)
+        console.warn(`ADVERTENCIA: RUT del CAF (${rutEmisor}) no coincide con RUT de la empresa (${empresa.rut})`)
         // No bloqueamos, pero advertimos
       }
 
@@ -62,7 +62,7 @@ export class FoliosService {
         data: { activo: false }
       })
 
-      console.log(`✅ CAFs anteriores desactivados`)
+      console.log(`CAFs anteriores desactivados`)
 
       // Crear nuevo CAF
       const nuevo = await this.prisma.folio_caf.create({
@@ -77,7 +77,7 @@ export class FoliosService {
         }
       })
 
-      console.log(`✅ CAF guardado con ID ${nuevo.id}`)
+      console.log(`CAF guardado con ID ${nuevo.id}`)
 
       return {
         id: nuevo.id,
@@ -90,7 +90,7 @@ export class FoliosService {
       }
       
     } catch (e) {
-      console.error('❌ Error procesando CAF:', e.message)
+      console.error('Error procesando CAF:', e.message)
       throw new BadRequestException(`Error al procesar CAF: ${e.message}`)
     }
   }
@@ -113,7 +113,7 @@ export class FoliosService {
     tipoDte: number
   ): Promise<{ folio: number; cafArchivo: string }> {
     
-    console.log(`🔍 Buscando CAF activo para empresa ${empresaId}, tipo ${tipoDte}`)
+    console.log(`Buscando CAF activo para empresa ${empresaId}, tipo ${tipoDte}`)
     
     const caf = await this.prisma.folio_caf.findFirst({
       where: {
@@ -130,7 +130,7 @@ export class FoliosService {
 
     const siguiente = caf.folio_actual + 1
 
-    console.log(`📊 Folio actual: ${caf.folio_actual}, siguiente: ${siguiente}, hasta: ${caf.folio_hasta}`)
+    console.log(`Folio actual: ${caf.folio_actual}, siguiente: ${siguiente}, hasta: ${caf.folio_hasta}`)
 
     if (siguiente > caf.folio_hasta) {
       await this.prisma.folio_caf.update({
@@ -147,7 +147,7 @@ export class FoliosService {
       data: { folio_actual: siguiente }
     })
 
-    console.log(`✅ Folio ${siguiente} asignado`)
+    console.log(`Folio ${siguiente} asignado`)
 
     return {
       folio: siguiente,

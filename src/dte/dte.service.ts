@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { FoliosService } from '../folios/folios.service';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as bwipjs from 'bwip-js';
 
 @Injectable()
 export class DteService {
@@ -14,8 +15,44 @@ export class DteService {
     private foliosService: FoliosService
   ) {}
 
+  /**
+   * Genera imagen PNG del PDF417 sin modificar (para mantener validez del código)
+   */
+  private async generarPdf417Imagen(tedXml: string): Promise<string | null> {
+    try {
+      const cleanData = tedXml.trim().replace(/\s+/g, ' ');
+
+      console.log('Generando imagen PDF417...');
+
+      const pngBuffer = await bwipjs.toBuffer({
+        bcid: 'pdf417',
+        text: cleanData,
+        // @ts-ignore - eclevel existe pero no está en los tipos de @types/bwip-js
+        eclevel: 5,
+        rowheight: 8,
+        scale: 3,
+        includetext: false,
+        paddingwidth: 8,
+        paddingheight: 8,
+      } as any);
+
+      if (!pngBuffer) {
+        throw new Error('No se generó buffer de imagen');
+      }
+
+      const base64 = (pngBuffer as Buffer).toString('base64');
+      console.log(`PDF417 generado (${(pngBuffer as Buffer).length} bytes)`);
+
+      return base64;
+
+    } catch (error) {
+      console.error('Error generando PDF417:', error);
+      return null;
+    }
+  }
+
   async emitirDteDesdeVenta(idVenta: number) {
-    console.log(`🚀 [DTE] Iniciando emisión para Venta ID: ${idVenta}`);
+    console.log(`[DTE] Iniciando emisión para Venta ID: ${idVenta}`);
 
     try {
       // 1. OBTENER DATOS DE LA VENTA
@@ -31,19 +68,19 @@ export class DteService {
         throw new Error(`Venta ${idVenta} no encontrada en BD`);
       }
 
-      console.log(`📋 Venta encontrada - Empresa: ${venta.empresa.rut}`);
+      console.log(`Venta encontrada - Empresa: ${venta.empresa.rut}`);
 
       // 2. OBTENER FOLIO Y CAF
       const { folio, cafArchivo } = await this.foliosService.obtenerSiguienteFolio(
         venta.empresa.id_empresa,
-        39 // Boleta Electrónica
+        39
       );
       
       if (!cafArchivo) {
-        throw new Error("No hay archivo CAF disponible. Carga un CAF en el sistema.");
+        throw new Error("No hay archivo CAF disponible");
       }
       
-      console.log(`🎫 Folio asignado: ${folio}`);
+      console.log(`Folio asignado: ${folio}`);
 
       // 3. PREPARAR PAYLOAD PARA LIBREDTE
       const payload = {
@@ -84,7 +121,7 @@ export class DteService {
         }
       };
 
-      console.log(`📡 Enviando a LibreDTE (${this.dteUrl})...`);
+      console.log(`Enviando a LibreDTE...`);
 
       // 4. LLAMADA AL MICROSERVICIO
       const response = await axios.post(
@@ -92,16 +129,16 @@ export class DteService {
         payload,
         { 
           headers: { 'Content-Type': 'application/json' },
-          timeout: 15000 // 15 segundos timeout
+          timeout: 15000
         }
       );
 
       const data = response.data;
-      console.log(`✅ LibreDTE respondió: ${data.mensaje || 'OK'}`);
+      console.log(`LibreDTE respondió: ${data.mensaje || 'OK'}`);
 
       // 5. VALIDAR RESPUESTA
       if (!data.xml || !data.ted) {
-        console.error("⚠️ Respuesta incompleta de LibreDTE:", JSON.stringify(data));
+        console.error("Respuesta incompleta:", JSON.stringify(data));
         throw new Error("El microservicio no generó XML o TED correctamente");
       }
 
@@ -116,9 +153,15 @@ export class DteService {
       const filePath = path.join(uploadDir, fileName);
       fs.writeFileSync(filePath, data.xml, { encoding: 'utf8' });
       
-      console.log(`💾 XML guardado en: ${filePath}`);
+      console.log(`XML guardado en: ${filePath}`);
 
-      // 7. ACTUALIZAR BASE DE DATOS
+      // 7. GENERAR IMAGEN PDF417 DEL TIMBRE
+      let pdf417Base64: any = null;
+      if (data.ted) {
+        pdf417Base64 = await this.generarPdf417Imagen(data.ted);
+      }
+
+      // 8. ACTUALIZAR BASE DE DATOS
       await this.prisma.venta.update({
         where: { id_venta: idVenta },
         data: {
@@ -129,30 +172,32 @@ export class DteService {
         }
       });
 
-      console.log(`✅ Venta actualizada en BD con folio ${folio}`);
+      console.log(`Venta actualizada en BD con folio ${folio}`);
 
-      // 8. RETORNAR RESPUESTA EXITOSA
+      // 9. RETORNAR RESPUESTA COMPLETA
       return {
         ok: true,
         folio: folio,
-        ted: data.ted,   // XML del <TED> para imprimir
-        xml: data.xml    // XML completo
+        ted: data.ted,              // XML del TED (para validación)
+        xml: data.xml,              // XML completo
+        pdf417Base64: pdf417Base64  // Imagen PNG base64 (para imprimir)
       };
 
     } catch (error) {
-      console.error(`❌ [DTE] Error en emisión:`, error.message);
+      console.error(`[DTE] Error:`, error.message);
       
-      // Log adicional si fue error de axios
       if (axios.isAxiosError(error)) {
-        console.error("📡 Status:", error.response?.status);
-        console.error("📡 Data:", JSON.stringify(error.response?.data));
+        console.error("Status:", error.response?.status);
+        console.error("Data:", JSON.stringify(error.response?.data));
       }
 
-      // Retornar objeto de error (no lanzar excepción)
       return { 
         ok: false, 
-        error: error.message || "Error desconocido al emitir DTE",
-        folio: null
+        error: error.message || "Error desconocido",
+        folio: null,
+        ted: null,
+        xml: null,
+        pdf417Base64: null
       }; 
     }
   }
