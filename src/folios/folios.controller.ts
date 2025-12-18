@@ -36,7 +36,7 @@ export class FoliosController {
       // Fallback: usar empresa_id = 1 o extraer del token
       // TODO: Implementar extracción del JWT si es necesario
       empresaId = 1;
-      console.warn('⚠️ empresa_id no recibido, usando empresa_id = 1 por defecto');
+      console.warn('empresa_id no recibido, usando empresa_id = 1 por defecto');
     }
 
     return this.foliosService.procesarCafXml(file, empresaId)
