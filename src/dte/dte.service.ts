@@ -163,13 +163,12 @@ export class DteService {
       
       console.log(`XML guardado en: ${filePath}`);
 
-      // 7. GENERAR IMAGEN PDF417 DEL TIMBRE
-      let pdf417Base64: any = null;
-      if (data.ted) {
-        pdf417Base64 = await this.generarPdf417Imagen(data.ted);
-      }
 
-      // 8. ACTUALIZAR BASE DE DATOS
+      let pdf417Base64: any = null;
+      /*if (data.ted) {
+        pdf417Base64 = await this.generarPdf417Imagen(data.ted);
+      }*/
+
       await this.prisma.venta.update({
         where: { id_venta: idVenta },
         data: {
@@ -188,7 +187,7 @@ export class DteService {
         folio: folio,
         ted: data.ted,              
         xml: data.xml,              
-        pdf417Base64: pdf417Base64  
+        pdf417Base64: null  // <--- FORZAMOS NULL AQUÍ
       };
 
     } catch (error) {
