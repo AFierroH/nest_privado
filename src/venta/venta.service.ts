@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { DteService } from '../dte/dte.service';
 
@@ -12,32 +12,59 @@ export class VentaService {
   async crearVenta(payload: any) {
     const { id_usuario, id_empresa, total, detalles, pagos } = payload;
     
-    const venta = await this.prisma.venta.create({
-      data: {
-        fecha: new Date(),
-        total,
-        id_usuario,
-        id_empresa,
-        detalle_venta: {
-          create: detalles.map(d => ({
-            id_producto: d.id_producto,
-            cantidad: d.cantidad,
-            precio_unitario: d.precio_unitario,
-            subtotal: d.cantidad * d.precio_unitario,
-          })),
+    // Usamos una transacción para asegurar que Venta y Stock se procesen juntos
+    return await this.prisma.$transaction(async (tx) => {
+      
+      // 1. Crear la Venta (Usamos 'tx' en lugar de 'this.prisma')
+      const venta = await tx.venta.create({
+        data: {
+          fecha: new Date(),
+          total,
+          id_usuario,
+          id_empresa,
+          detalle_venta: {
+            create: detalles.map(d => ({
+              id_producto: d.id_producto,
+              cantidad: d.cantidad,
+              precio_unitario: d.precio_unitario,
+              subtotal: d.cantidad * d.precio_unitario,
+            })),
+          },
+          pagos: {
+            create: pagos?.map(p => ({ id_pago: p.id_pago, monto: p.monto })) || [],
+          },
         },
-        pagos: {
-          create: pagos?.map(p => ({ id_pago: p.id_pago, monto: p.monto })) || [],
-        },
-      },
-      include: { detalle_venta: true, pagos: true, empresa: true },
+        include: { detalle_venta: true, pagos: true, empresa: true },
+      });
+
+      // 2. Descontar Stock de cada producto
+      for (const detalle of detalles) {
+
+        const producto: any = await tx.producto.findUnique({ where: { id_producto: detalle.id_producto } });
+        if (producto.stock < detalle.cantidad) {
+           throw new BadRequestException(`Stock insuficiente para el producto ID: ${detalle.id_producto}`);
+        }
+
+
+        await tx.producto.update({
+          where: { id_producto: detalle.id_producto },
+          data: {
+            stock: {
+              decrement: detalle.cantidad // ¡Esta es la magia! Resta la cantidad atómicamente
+            }
+          }
+        });
+      }
+
+      return venta;
     });
-    return venta;
   }
 
+  // ... El resto de tus métodos (emitirVentaCompleta, validarVoucher) quedan IGUALES ...
   async emitirVentaCompleta(payload: any) {
     console.log('Iniciando emisión de venta completa...');
 
+    // NOTA: crearVenta ya maneja la transacción y el stock internamente ahora.
     const ventaDb = await this.crearVenta(payload);
     console.log(`Venta guardada con ID: ${ventaDb.id_venta}`);
 
